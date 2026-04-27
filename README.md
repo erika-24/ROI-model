@@ -145,3 +145,129 @@ Request:
   "country": "GERMANY"
 }
 ```
+
+# BMW ROI Economic Model — User Guide
+
+## Overview
+This tool helps evaluate the **financial impact of new technologies**, including:
+
+- Robotics
+- AI systems
+- Automation solutions
+- Digital tools
+
+It answers:
+- Is this worth investing in?
+- How quickly does it pay back?
+- What drives the value?
+
+---
+
+## How It Works
+
+1. A technology idea is analyzed  
+2. Economic assumptions are generated  
+3. The model calculates:
+   - ROI
+   - Payback period
+   - NPV
+   - Yearly savings  
+
+---
+
+## Using the Tool
+
+### 1. Review Inputs
+The system generates assumptions grouped by category:
+- Finance  
+- Demand  
+- Labor  
+- Technology Costs  
+- Performance  
+- Deployment  
+- Regional Assumptions  
+
+---
+
+### 2. Edit Assumptions
+You can adjust:
+- labor savings  
+- costs  
+- deployment speed  
+- efficiency improvements  
+
+This allows scenario testing and validation.
+Changing values instantly recalculates results.
+
+
+## Understanding Results
+
+### ROI
+Return relative to investment.
+
+Example:
+```
+6000% ROI = large savings relative to small investment
+```
+
+---
+
+### Payback Period
+Time required to recover investment.
+
+---
+
+### NPV
+Total value accounting for time and discounting.
+
+---
+
+## Explain Feature
+
+Each metric includes an **Explain** option.
+
+It shows:
+- formulas used  
+- actual values  
+- step-by-step calculations  
+
+This ensures transparency and trust.
+
+---
+
+## Interpreting High ROI
+
+High ROI typically means:
+- low upfront cost  
+- high recurring savings  
+- strong labor reduction  
+
+Common for:
+- software solutions  
+- process automation  
+
+---
+
+## Best Practices
+
+- Review assumptions carefully  
+- Adjust based on real data  
+- Test multiple scenarios  
+- Focus on value drivers  
+
+---
+
+## Limitations
+
+- Results depend on assumptions  
+- AI generates estimates, not guarantees  
+- Model simplifies real-world complexity  
+
+---
+
+## Goal
+
+This tool is a **decision support system** to help:
+- quantify impact  
+- compare opportunities  
+- communicate investment value  
