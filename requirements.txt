@@ -1,5 +1,7 @@
-altair==5.5.0
+altair==6.0.0
+google-genai==1.73.1
 matplotlib==3.10.7
 numpy==2.3.4
 pandas==2.3.3
-streamlit==1.51.0
+streamlit==1.56.0
+uvicorn==0.46.0
