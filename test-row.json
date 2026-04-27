@@ -1,0 +1,15 @@
+{
+  "application": "MANUFACTURING",
+  "country": "GERMANY",
+  "row": {
+    "technologyName": "OpenOOD v1.5",
+    "technologyDescription": "Provides standardized evaluation for OOD detection under near/far shifts and nuisance factors.",
+    "trlLevel": "4",
+    "jobTitle": "Validation Engineers",
+    "task": "Analyze validation test data to determine whether systems or processes have met validation criteria or identify root causes.",
+    "capability": "detect input data outside training distributions",
+    "idea": "Validation Engineers can integrate OpenOOD v1.5 into the post-deployment analysis pipeline...",
+    "fitLevel": "HIGH",
+    "fitRationale": "This directly addresses root cause analysis by flagging OOD production data."
+  }
+}
