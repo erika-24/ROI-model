@@ -314,7 +314,7 @@
         }
       ],
       "streamlit_url": "http://localhost:8501/?row_id=8e4d93a30e96",
-      "updated_at": "2026-05-04T10:19:33.521481",
+      "updated_at": "2026-05-04T11:39:49.700204",
       "generated_inputs": {
         "reasoning": "This project implements a full-factory digital twin to enhance the efficiency and quality of manufacturing systems engineering tasks. The primary benefits stem from improved planning and validation, leading to labor efficiency gains, reduced defects, increased throughput, and avoided safety incidents, scrap, and rework costs. The investment is substantial, primarily in software licenses, high-performance computing infrastructure, and complex data integration, with ongoing annual software and data operations expenses.",
         "scenario_overrides": {
@@ -377,5 +377,5 @@
       "economic_model_type": "SOFTWARE"
     }
   },
-  "updated_at": "2026-05-04T10:19:33.521487"
+  "updated_at": "2026-05-04T11:39:49.700212"
 }

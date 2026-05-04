@@ -888,12 +888,7 @@ def plot_cashflows(results: Results, title: str = "Cashflows & Savings"):
     plt.legend()
     plt.tight_layout()
     plt.show()
-
-
-# -----------------------------
-# CLI & (optional) Streamlit UI
-# -----------------------------
-
+    
 
 def build_model_from_args(args: argparse.Namespace) -> Model:
     app_map = {
@@ -2309,7 +2304,7 @@ def render_matchmaking_handoff(
 
             st.dataframe(
                 rationale_df,
-                use_container_width=True,
+                width=True,
                 hide_index=True,
             )
 
@@ -2324,23 +2319,6 @@ def render_matchmaking_handoff(
 
     horizon_outputs = horizon_df.to_dict(orient="records")
     scenario_overrides = collect_editable_model_inputs(editable_model, solution)
-
-    # if st.button("Update ROI results for Nik's tool", type="primary"):
-    #     update_row_state(
-    #         row_id,
-    #         {
-    #             "status": "edited",
-    #             "scenario_overrides": scenario_overrides,
-    #             "regional_inputs": dict(editable_regional_inputs),
-    #             "horizon_outputs": horizon_outputs,
-    #             "economic_model_type": solution.name,
-    #             "generated_inputs": {
-    #                 **generated_inputs,
-    #                 "scenario_overrides": scenario_overrides,
-    #             },
-    #         },
-    #     )
-    #     st.success("Updated ROI results for Match-making tool.")
 
     if not horizon_df.empty:
         st.dataframe(
@@ -2358,6 +2336,8 @@ def render_matchmaking_handoff(
 
     horizon_outputs = horizon_df.to_dict(orient="records")
     scenario_overrides = collect_editable_model_inputs(editable_model, solution)
+
+    # st.session_state["latest_matchmaking_output"] = horizon_outputs
 
     updated_row_state = update_row_state(
         row_id,
@@ -2772,7 +2752,9 @@ def run_streamlit():
     st.session_state[region_key] = dict(regional_inputs)
 
     render_matchmaking_handoff(st, base_model, country, regional_inputs)
+
     output = st.session_state.get("latest_matchmaking_output")
+
     if output:
         yearly_df = pd.DataFrame(output.get("yearly", []))
         if not yearly_df.empty:
