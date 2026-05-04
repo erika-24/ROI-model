@@ -7,13 +7,13 @@ This guide explains:
 
 ---
 
-## 🧠 High-Level Architecture
+## High-Level Architecture
 
 Matchmaking Tool → get_roi_for_selected_row(...) → shared_roi_state.json → Streamlit ROI Model
 
 ---
 
-## 🚀 Running the Demo Locally
+## Running the Demo Locally
 
 ### Step 1 — Start the ROI Model (Streamlit)
 
@@ -43,7 +43,7 @@ get_roi_for_selected_row(row_dict, row_id, application, country)
 
 ---
 
-## 📤 Output Format
+## Output Format
 
 {
   "status": "success",
@@ -56,7 +56,7 @@ get_roi_for_selected_row(row_dict, row_id, application, country)
 
 ---
 
-## 🎯 Demo Scenario
+## Demo Scenario
 
 Full Factory Digital Twin Coverage (NVIDIA Omniverse)
 
@@ -67,3 +67,233 @@ Full Factory Digital Twin Coverage (NVIDIA Omniverse)
 - LLM is called once per row
 - Editing assumptions does NOT call LLM
 - Shared state stored in shared_roi_state.json
+
+
+---
+
+## Input Format (POST Request)
+
+Send a **single row JSON object**:
+
+```json
+{
+  "application": "MANUFACTURING",
+  "country": "GERMANY",
+  "row": {
+    "technologyName": "OpenOOD v1.5",
+    "technologyDescription": "Provides standardized evaluation for OOD detection under near/far shifts and nuisance factors.",
+    "trlLevel": "4",
+    "jobTitle": "Validation Engineers",
+    "task": "Analyze validation test data to determine whether systems or processes have met validation criteria or identify root causes.",
+    "capability": "detect input data outside training distributions",
+    "idea": "Validation Engineers can integrate OpenOOD v1.5 into the post-deployment analysis pipeline...",
+    "fitLevel": "HIGH",
+    "fitRationale": "This directly addresses root cause analysis by flagging OOD production data."
+  }
+}
+```
+The first two rows are required context. The values shown are set as default.
+
+## Example Output from Economic Model tool
+
+```json
+{
+  "generated_inputs": {
+    "scenario_overrides": {
+      "application_type": "manufacturing",
+      "solution_type": "humanoid",
+      "region": "Germany",
+      "deployment_units": 8,
+      "current_labor_cost_per_year": 1800000,
+      "robot_capex_per_unit": 95000,
+      "integration_cost_initial": 650000,
+      "annual_maintenance_pct": 0.12,
+      "labor_reduction_pct": 0.35,
+      "throughput_improvement_pct": 0.08,
+      "discount_rate": 0.1
+    }
+  },
+  "current_horizon_summary": {
+    "Horizon_Years": 7,
+    "NPV": 2450000,
+    "ROI": 60.5,
+    "Payback_Year": 2
+  },
+  "horizon_outputs": [
+    {
+      "Horizon_Years": 3,
+      "NPV": 420000,
+      "ROI": 14.2,
+      "Payback_Year": 2
+    },
+    {
+      "Horizon_Years": 5,
+      "NPV": 1380000,
+      "ROI": 38.7,
+      "Payback_Year": 2
+    },
+    {
+      "Horizon_Years": 7,
+      "NPV": 2450000,
+      "ROI": 60.5,
+      "Payback_Year": 2
+    }
+  ]
+}
+```
+
+---
+
+## LLM Behavior
+The LLM performs:
+1. Idea breakdown  
+2. Economic assumption generation  
+
+Outputs include:
+- labor assumptions
+- cost structure
+- performance improvements
+- deployment ramp
+
+---
+
+## Design Notes
+
+### Solution Selection
+- The provided row is treated as the selected solution
+
+### Editable Inputs
+- All generated assumptions are editable in the UI
+
+### Deterministic Recalculation
+- After generation, all updates are deterministic
+
+---
+
+## Suggested Endpoint
+
+```
+POST /roi/evaluate
+```
+
+Request:
+```json
+{
+  "row": { },
+  "application": "MANUFACTURING",
+  "country": "GERMANY"
+}
+```
+
+# BMW ROI Economic Model — User Guide
+
+## Overview
+This tool helps evaluate the **financial impact of new technologies**, including:
+
+- Robotics
+- AI systems
+- Automation solutions
+- Digital tools
+
+It answers:
+- Is this worth investing in?
+- How quickly does it pay back?
+- What drives the value?
+
+---
+
+## How It Works
+
+1. A technology idea is analyzed  
+2. Economic assumptions are generated  
+3. The model calculates:
+   - ROI
+   - Payback period
+   - NPV
+   - Yearly savings  
+
+---
+
+## Using the Tool
+
+### 1. Review Inputs
+The system generates assumptions grouped by category:
+- Finance  
+- Demand  
+- Labor  
+- Technology Costs  
+- Performance  
+- Deployment  
+- Regional Assumptions  
+
+---
+
+### 2. Edit Assumptions
+You can adjust:
+- labor savings  
+- costs  
+- deployment speed  
+- efficiency improvements  
+
+This allows scenario testing and validation.
+Changing values instantly recalculates results.
+
+
+## Understanding Results
+
+### ROI
+Return relative to investment.
+
+Example:
+```
+6000% ROI = large savings relative to small investment
+```
+
+---
+
+### Payback Period
+Time required to recover investment.
+
+---
+
+### NPV
+Total value accounting for time and discounting.
+
+---
+
+## Explain Feature
+
+Each metric includes an **Explain** option.
+
+It shows:
+- formulas used  
+- actual values  
+- step-by-step calculations  
+
+This ensures transparency and trust.
+
+---
+
+## Best Practices
+
+- Review assumptions carefully  
+- Adjust based on real data  
+- Test multiple scenarios  
+- Focus on value drivers  
+
+---
+
+## Limitations
+
+- Results depend on assumptions  
+- AI generates estimates, not guarantees  
+- Model simplifies real-world complexity  
+
+---
+
+## Goal
+
+This tool is a **decision support system** to help:
+- quantify impact  
+- compare opportunities  
+- communicate investment value  
