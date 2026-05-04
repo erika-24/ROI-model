@@ -1,0 +1,381 @@
+{
+  "rows": {
+    "82e91b022e5b": {
+      "row_id": "82e91b022e5b",
+      "status": "edited",
+      "row": {
+        "technologyName": "Adapter",
+        "technologyDescription": "Adds small trainable modules to adapt a frozen backbone",
+        "trlLevel": "7",
+        "jobTitle": "Automotive Engineering Technicians",
+        "task": "Set up mechanical, hydraulic, or electric test equipment",
+        "capability": "inject trainable parameters into frozen model architectures",
+        "idea": "Use adapters to customize a vision-language model for failure pattern recognition",
+        "fitLevel": "MED",
+        "fitRationale": "Useful for adapting models to BMW-specific test environments"
+      },
+      "context": {
+        "application": "MANUFACTURING",
+        "country": "GERMANY"
+      },
+      "scenario_overrides": {
+        "economics.discount_rate": 0.1,
+        "economics.horizon_years": 7,
+        "economics.inflation_labor": 0.03,
+        "economics.inflation_maintenance": 0.02,
+        "economics.inflation_energy": 0.03,
+        "include_revenue_uplift": false,
+        "demand.base_units_per_year": 12000,
+        "demand.annual_growth": 0.02,
+        "demand.revenue_per_unit": 0.0,
+        "labor.wage_per_hour": 42.0,
+        "labor.manual_hours_per_unit": 0.5,
+        "labor.automated_supervision_hours_per_unit": 0.05,
+        "labor.automation_capture_pct": 0.15,
+        "labor.automated_wage_per_hour": 0.75,
+        "labor.safety_incident_cost_delta_per_year": 0.0,
+        "perf.scrap_cost_per_unit": 200.0,
+        "perf.rework_cost_per_unit": 100.0,
+        "software.capex_initial": 250000.0,
+        "software.integration_initial": 150000.0,
+        "software.software_per_year": 50000.0,
+        "software.data_ops_per_year": 75000.0,
+        "software.defect_reduction_pct": 0.1,
+        "software.labor_efficiency_pct": 0.15,
+        "software.throughput_uplift_pct": 0.05
+      },
+      "horizon_outputs": [
+        {
+          "Horizon_Years": 3,
+          "NPV": 369800.07405619865,
+          "Payback_Year": 2,
+          "ROI": 1.1149470540200035
+        },
+        {
+          "Horizon_Years": 5,
+          "NPV": 808077.3787566414,
+          "Payback_Year": 2,
+          "ROI": 2.6439345180564655
+        },
+        {
+          "Horizon_Years": 7,
+          "NPV": 1194281.1797610293,
+          "Payback_Year": 2,
+          "ROI": 4.274180865773578
+        }
+      ],
+      "streamlit_url": "http://localhost:8501/?row_id=82e91b022e5b",
+      "updated_at": "2026-04-30T14:30:27.017266",
+      "generated_inputs": {
+        "reasoning": "Inputs generated based on the 'software_first' deployment archetype and 'augmentation' labor model. Conservative values are used for demand, growth, and safety benefits. Quality improvement is significant due to the idea's focus, while throughput uplift is moderate. Software and data operations costs reflect the complexity of deploying a vision-language model with trainable adapters in a manufacturing environment.",
+        "scenario_overrides": {
+          "economics.discount_rate": 0.1,
+          "economics.horizon_years": 7,
+          "economics.inflation_labor": 0.03,
+          "economics.inflation_maintenance": 0.02,
+          "economics.inflation_energy": 0.03,
+          "include_revenue_uplift": false,
+          "demand.base_units_per_year": 12000,
+          "demand.annual_growth": 0.02,
+          "demand.revenue_per_unit": 0.0,
+          "labor.wage_per_hour": 42.0,
+          "labor.manual_hours_per_unit": 0.5,
+          "labor.automated_supervision_hours_per_unit": 0.05,
+          "labor.automation_capture_pct": 0.15,
+          "labor.automated_wage_per_hour": 0.75,
+          "labor.safety_incident_cost_delta_per_year": 0.0,
+          "perf.scrap_cost_per_unit": 200.0,
+          "perf.rework_cost_per_unit": 100.0,
+          "software.capex_initial": 250000.0,
+          "software.integration_initial": 150000.0,
+          "software.software_per_year": 50000.0,
+          "software.data_ops_per_year": 75000.0,
+          "software.defect_reduction_pct": 0.1,
+          "software.labor_efficiency_pct": 0.15,
+          "software.throughput_uplift_pct": 0.05
+        },
+        "bucket_explanations": {
+          "demand": "Base units per year represent 12,000 diagnostic events or test cycles annually where failure pattern recognition is applied. Annual growth is set to a conservative 2% for an internal operational improvement tool. No direct revenue uplift is assumed.",
+          "labor": "Manual hours per unit (0.5h) reflects the estimated time a technician currently spends on relevant diagnostic tasks per test cycle. Automated supervision hours (0.05h) account for minimal human oversight of the AI system's outputs. Automation capture (15%) and wages are directly from the economic breakdown. Safety incident cost delta is zero as benefits are indirect and rated 'low'.",
+          "costs": "As a 'software_first' solution, per-unit CAPEX, installation, integration, maintenance, and consumables are set to zero, with these costs being captured in initial software CAPEX/integration and annual software/data ops. Energy consumption (0.1 kWh per unit) accounts for computational resources used for pattern recognition.",
+          "performance": "Defect rate change (-10%) reflects a significant improvement in quality due to better failure pattern recognition, aligning with a 'high' quality benefit. Throughput change (5%) indicates a 'medium' uplift in the number of tests/diagnostics processed. Scrap and rework costs per unit (200\u20ac and 100\u20ac respectively) represent the estimated potential cost if a critical failure pattern is missed and leads to a downstream issue.",
+          "deployment": "The 'software_first' archetype means initial costs are concentrated in software CAPEX and integration, covering specialized hardware (e.g., GPU servers) and connecting the VLM to test equipment data streams. A standard monthly ramp-up over a year is assumed for deployment."
+        },
+        "assumption_notes": [
+          "Baseline wage per hour reflects a conservative gross hourly pay estimate for a skilled Automotive Engineering Technician in Germany, excluding full benefits but representing direct labor cost.",
+          "Automation capture percentage for 'augmentation' signifies the estimated improvement in efficiency and accuracy for the specific task of failure pattern recognition, not a direct reduction in the technician's required hours or headcount.",
+          "Automated wage per hour represents the marginal operational cost of running the AI software system for active inference/processing per hour, acknowledging that the primary investment is in development and integration.",
+          "Quality improvement is considered high due to the potential for AI to detect subtle or complex failure patterns more consistently and earlier than human observation alone, leading to improved diagnostic accuracy and preventative measures.",
+          "Safety improvement is rated low as the system primarily enhances diagnostic capabilities rather than directly mitigating immediate physical hazards associated with equipment operation.",
+          "Demand: 'Units' are defined as diagnostic events or test cycles, not physical components. 12,000 units/year is an estimated starting point for a single application within a manufacturing facility.",
+          "Performance: Scrap and rework costs are estimated average costs per diagnostic event if a critical failure is missed, reflecting the downstream impact on part quality and production efficiency.",
+          "Software Costs: Initial CAPEX for software includes specialized computing infrastructure (e.g., GPU servers) for VLM deployment. Integration costs cover connecting the VLM to diverse test equipment sensor and log data streams. Annual software and data operations costs account for licensing, maintenance, MLOps, and model retraining."
+        ],
+        "open_questions": [
+          "What is the current baseline for technician time spent on failure pattern recognition and diagnosis for a representative set of test equipment?",
+          "What specific data inputs (e.g., camera feeds, sensor data, textual logs) are readily available from BMW's test equipment for training and inference, and what are their quality and volume?",
+          "How will the customization and training of these adapter modules be managed to ensure continuous improvement and adaptability to evolving test scenarios and new vehicle technologies?",
+          "What are the integration requirements and costs for deploying such a vision-language model within BMW's existing IT infrastructure and connecting it to test equipment data streams?",
+          "How will the system handle edge cases, novel failure modes, or ambiguous patterns, and what human-in-the-loop validation processes will be necessary?",
+          "What is the current baseline defect rate (specifically for failure patterns detectable by a VLM) in the target test equipment, to validate the 'defect_rate_change_pct' assumption?",
+          "What is the average financial impact (e.g., cost of scrap/rework, downtime) of a missed failure pattern in the current diagnostic process?"
+        ]
+      },
+      "regional_inputs": {
+        "wage_multiplier_vs_baseline": 1.25,
+        "energy_cost_per_kwh": 0.25,
+        "maintenance_multiplier": 1.1
+      },
+      "economic_model_type": "SOFTWARE"
+    },
+    "8bc0df9e77b8": {
+      "row_id": "8bc0df9e77b8",
+      "status": "edited",
+      "row": {
+        "technologyName": "Full Factory Digital Twin Coverage (NVIDIA Omniverse)",
+        "technologyDescription": "A full-factory digital twin built with NVIDIA Omniverse to simulate production flows, validate layouts, test process changes, and identify bottlenecks before physical implementation.",
+        "trlLevel": "8",
+        "jobTitle": "Manufacturing Systems Engineers",
+        "task": "Plan, validate, and optimize factory layouts, production processes, throughput, and root-cause analysis for manufacturing operations.",
+        "capability": "simulate full-factory operations and evaluate process changes virtually before deployment",
+        "idea": "Manufacturing systems engineers can use NVIDIA Omniverse to create full digital twin coverage of a BMW factory, enabling virtual commissioning, layout optimization, bottleneck detection, process validation, and faster root-cause analysis.",
+        "fitLevel": "HIGH",
+        "fitRationale": "A full-factory digital twin directly supports manufacturing optimization, reduces physical trial-and-error, improves throughput planning, and helps validate changes before costly implementation."
+      },
+      "context": {
+        "application": "MANUFACTURING",
+        "country": "GERMANY"
+      },
+      "scenario_overrides": {
+        "economics.discount_rate": 0.08,
+        "economics.horizon_years": 7,
+        "economics.inflation_labor": 0.035,
+        "economics.inflation_maintenance": 0.025,
+        "economics.inflation_energy": 0.04,
+        "include_revenue_uplift": false,
+        "demand.base_units_per_year": 300000,
+        "demand.annual_growth": 0.02,
+        "demand.revenue_per_unit": 0.0,
+        "labor.wage_per_hour": 65.0,
+        "labor.manual_hours_per_unit": 120.0,
+        "labor.automated_supervision_hours_per_unit": 15.0,
+        "labor.automation_capture_pct": 0.35,
+        "labor.automated_wage_per_hour": 45.0,
+        "labor.safety_incident_cost_delta_per_year": 250000.0,
+        "perf.scrap_cost_per_unit": -800.0,
+        "perf.rework_cost_per_unit": -600.0,
+        "software.capex_initial": 30000000.0,
+        "software.integration_initial": 5000.0,
+        "software.software_per_year": 100000.0,
+        "software.data_ops_per_year": 120000.0,
+        "software.defect_reduction_pct": -0.15,
+        "software.labor_efficiency_pct": 0.5,
+        "software.throughput_uplift_pct": 0.1
+      },
+      "horizon_outputs": [
+        {
+          "Horizon_Years": 3,
+          "NPV": 3400999994.255829,
+          "Payback_Year": 1,
+          "ROI": 122.59529789368436
+        },
+        {
+          "Horizon_Years": 5,
+          "NPV": 5561653121.797142,
+          "Payback_Year": 1,
+          "ROI": 216.89406184381806
+        },
+        {
+          "Horizon_Years": 7,
+          "NPV": 7626203707.826577,
+          "Payback_Year": 1,
+          "ROI": 321.99194816016933
+        }
+      ],
+      "streamlit_url": "http://localhost:8501/?row_id=8bc0df9e77b8",
+      "updated_at": "2026-04-30T17:20:21.806808",
+      "generated_inputs": {
+        "reasoning": "This analysis models the economic impact of implementing a full-factory digital twin using NVIDIA Omniverse at a BMW manufacturing facility. The core value proposition is enabling manufacturing systems engineers to virtually simulate, validate, and optimize factory operations, processes, and layouts before physical implementation. This 'software-first' augmentation approach aims to reduce engineering time, improve quality, increase throughput, and enhance safety by minimizing physical trial-and-error and preempting issues. The inputs are based on conservative automotive/manufacturing defaults, specific details from the economic breakdown, and an interpretation of 'units' as significant optimization projects or process changes leveraging the digital twin annually.",
+        "scenario_overrides": {
+          "economics.discount_rate": 0.08,
+          "economics.horizon_years": 7,
+          "economics.inflation_labor": 0.035,
+          "economics.inflation_maintenance": 0.025,
+          "economics.inflation_energy": 0.04,
+          "include_revenue_uplift": false,
+          "demand.base_units_per_year": 300000,
+          "demand.annual_growth": 0.02,
+          "demand.revenue_per_unit": 0.0,
+          "labor.wage_per_hour": 65.0,
+          "labor.manual_hours_per_unit": 120.0,
+          "labor.automated_supervision_hours_per_unit": 15.0,
+          "labor.automation_capture_pct": 0.35,
+          "labor.automated_wage_per_hour": 45.0,
+          "labor.safety_incident_cost_delta_per_year": 250000.0,
+          "perf.scrap_cost_per_unit": -800.0,
+          "perf.rework_cost_per_unit": -600.0,
+          "software.capex_initial": 30000000.0,
+          "software.integration_initial": 5000.0,
+          "software.software_per_year": 100000.0,
+          "software.data_ops_per_year": 120000.0,
+          "software.defect_reduction_pct": -0.15,
+          "software.labor_efficiency_pct": 0.5,
+          "software.throughput_uplift_pct": 0.1
+        },
+        "bucket_explanations": {
+          "demand": "The 'unit' represents a major optimization project, process change validation, or new layout planning cycle performed by manufacturing systems engineers that significantly leverages the full factory digital twin. We conservatively estimate 12 such high-impact 'units' per year for a single BMW factory.",
+          "labor": "The digital twin augments manufacturing systems engineers, enhancing their efficiency in planning, validation, and optimization. The 'automation_capture_pct' reflects the estimated time savings for engineers per 'unit' by reducing manual analysis, physical trials, and rework. Wages are based on the provided loaded cost for skilled engineers in Germany, with a nominal operational cost for the automated system.",
+          "costs": "As a 'software_first' solution for a 'full factory' scope, there is significant initial CAPEX for high-performance computing hardware and substantial integration costs for data pipelines and initial model setup. Recurring costs include software licensing, data operations (management, storage), and energy consumption from complex simulations. Per-unit costs for maintenance, installation, and general CAPEX are captured in the initial and annual software/data operations costs.",
+          "performance": "Virtual commissioning and simulation via the digital twin are expected to lead to a 'high' improvement in quality by reducing defects (e.g., related to process design) and eliminating scrap/rework associated with suboptimal physical implementations. It also enables 'high' throughput uplift by identifying and resolving bottlenecks and optimizing production flows before deployment.",
+          "deployment": "The 'deploy.ramp' schedule outlines the phased increase in the adoption or impact of the digital twin over time, indicating a gradual rollout or increasing utilization across various projects within the factory."
+        },
+        "assumption_notes": [
+          "The 'unit' for demand is defined as a significant optimization project or process change that fully utilizes the digital twin capabilities, estimated conservatively at one per month (12 per year) for a factory.",
+          "Energy consumption (2000 kWh/unit) assumes complex, multi-day simulation runs per major project on high-performance computing resources.",
+          "Safety incident cost delta is a conservative estimate for preventing physical risks through virtual testing, aligning with a 'medium' safety improvement.",
+          "Scrap and rework cost savings (-1000 EUR/unit each) are conservative estimates for avoiding material waste and labor costs associated with physical trial-and-error or suboptimal processes during initial implementation."
+        ],
+        "open_questions": [
+          "What is the precise scope of 'full factory coverage' and how does it influence the required initial CAPEX for hardware and integration efforts?",
+          "How will the efficiency gains for manufacturing systems engineers be measured in practice (e.g., reduction in project cycle time, number of physical prototypes avoided, reduction in production line downtime post-commissioning)?",
+          "What is the expected lifespan of the initial hardware investment, and what are the refresh cycles for high-performance computing equipment for such a system?",
+          "How are the 'base units per year' (12 projects/optimizations) distributed across different factory areas or types of processes within a BMW facility?"
+        ]
+      },
+      "regional_inputs": {
+        "wage_multiplier_vs_baseline": 1.25,
+        "energy_cost_per_kwh": 0.25,
+        "maintenance_multiplier": 1.1
+      },
+      "economic_model_type": "SOFTWARE"
+    },
+    "8e4d93a30e96": {
+      "row_id": "8e4d93a30e96",
+      "status": "edited7",
+      "row": {
+        "technologyName": "Full Factory Digital Twin Coverage (NVIDIA Omniverse)",
+        "technologyDescription": "A full-factory digital twin built with NVIDIA Omniverse to simulate production flows, validate layouts, test process changes, and identify bottlenecks before physical implementation.",
+        "trlLevel": "8",
+        "jobTitle": "Manufacturing Systems Engineers",
+        "task": "Plan, validate, and optimize factory layouts, production processes, throughput, and root-cause analysis for manufacturing operations.",
+        "capability": "Simulate full-factory operations and evaluate process changes virtually before deployment",
+        "idea": "Manufacturing systems engineers can use NVIDIA Omniverse to create full digital twin coverage of a BMW factory for analysis.",
+        "fitLevel": "HIGH",
+        "fitRationale": "A full-factory digital twin directly supports manufacturing optimization, reduces physical trial-and-error, improves throughput planning, and helps validate changes before costly implementation."
+      },
+      "context": {
+        "application": "MANUFACTURING",
+        "country": "GERMANY"
+      },
+      "scenario_overrides": {
+        "economics.discount_rate": 0.008,
+        "economics.horizon_years": 7,
+        "economics.inflation_labor": 0.035,
+        "economics.inflation_maintenance": 0.025,
+        "economics.inflation_energy": 0.04,
+        "include_revenue_uplift": false,
+        "demand.base_units_per_year": 300000,
+        "demand.annual_growth": 0.02,
+        "demand.revenue_per_unit": 0.0,
+        "labor.wage_per_hour": 65.0,
+        "labor.manual_hours_per_unit": 120.0,
+        "labor.automated_supervision_hours_per_unit": 15.0,
+        "labor.automation_capture_pct": 0.35,
+        "labor.automated_wage_per_hour": 45.0,
+        "labor.safety_incident_cost_delta_per_year": -250000.0,
+        "perf.scrap_cost_per_unit": -800.0,
+        "perf.rework_cost_per_unit": -600.0,
+        "software.capex_initial": 30000000.0,
+        "software.integration_initial": 5000000.0,
+        "software.software_per_year": 600000.0,
+        "software.data_ops_per_year": 300000.0,
+        "software.defect_reduction_pct": -0.1,
+        "software.labor_efficiency_pct": 0.15,
+        "software.throughput_uplift_pct": 0.1
+      },
+      "horizon_outputs": [
+        {
+          "Horizon_Years": 3,
+          "NPV": 1065936836.6461165,
+          "Payback_Year": 1,
+          "ROI": 0.21254840265059455
+        },
+        {
+          "Horizon_Years": 5,
+          "NPV": 1889716816.4250531,
+          "Payback_Year": 1,
+          "ROI": 0.21428953975142553
+        },
+        {
+          "Horizon_Years": 7,
+          "NPV": 2793503660.7535,
+          "Payback_Year": 1,
+          "ROI": 0.21397367405808143
+        }
+      ],
+      "streamlit_url": "http://localhost:8501/?row_id=8e4d93a30e96",
+      "updated_at": "2026-05-04T10:19:33.521481",
+      "generated_inputs": {
+        "reasoning": "This project implements a full-factory digital twin to enhance the efficiency and quality of manufacturing systems engineering tasks. The primary benefits stem from improved planning and validation, leading to labor efficiency gains, reduced defects, increased throughput, and avoided safety incidents, scrap, and rework costs. The investment is substantial, primarily in software licenses, high-performance computing infrastructure, and complex data integration, with ongoing annual software and data operations expenses.",
+        "scenario_overrides": {
+          "economics.discount_rate": 0.008,
+          "economics.horizon_years": 7,
+          "economics.inflation_labor": 0.035,
+          "economics.inflation_maintenance": 0.025,
+          "economics.inflation_energy": 0.04,
+          "include_revenue_uplift": false,
+          "demand.base_units_per_year": 300000,
+          "demand.annual_growth": 0.02,
+          "demand.revenue_per_unit": 0.0,
+          "labor.wage_per_hour": 65.0,
+          "labor.manual_hours_per_unit": 120.0,
+          "labor.automated_supervision_hours_per_unit": 15.0,
+          "labor.automation_capture_pct": 0.35,
+          "labor.automated_wage_per_hour": 45.0,
+          "labor.safety_incident_cost_delta_per_year": -250000.0,
+          "perf.scrap_cost_per_unit": -800.0,
+          "perf.rework_cost_per_unit": -600.0,
+          "software.capex_initial": 30000000.0,
+          "software.integration_initial": 5000000.0,
+          "software.software_per_year": 600000.0,
+          "software.data_ops_per_year": 300000.0,
+          "software.defect_reduction_pct": -0.1,
+          "software.labor_efficiency_pct": 0.15,
+          "software.throughput_uplift_pct": 0.1
+        },
+        "bucket_explanations": {
+          "demand": "The 'units' represent major factory planning or optimization projects (e.g., layout changes, process flow re-engineering) that would leverage the full-factory digital twin. A conservative estimate of 30 such projects per year for a typical factory allows for robust simulation. Annual growth reflects increasing adoption and identified use cases. Revenue per unit is zero as this is an internal cost-saving/efficiency initiative.",
+          "labor": "This is an augmentation model for Manufacturing Systems Engineers. The digital twin enables a 15% efficiency gain in their planning and validation tasks, reducing manual hours. The automated wage represents the incremental operational cost of running the digital twin while an engineer uses it, reflecting software and compute resources. A conservative safety incident cost reduction reflects proactive hazard identification through simulation.",
+          "costs": "Capex, installation, and integration per unit are set to zero as these are primarily initial, global software and hardware investments. Maintenance per unit is also zero as annual software costs cover this. Energy costs reflect the computational intensity of running advanced simulations on high-performance computing hardware for each optimization project. Consumables are not applicable.",
+          "performance": "High quality improvement and throughput uplift ratings translate to a 10% reduction in defects and a 5% increase in throughput for processes impacted by optimizations. This leads to avoided scrap and rework costs for each optimized 'unit,' representing the cost of errors that would have occurred without virtual validation.",
+          "deployment": "The default ramp schedule is used, reflecting a typical phased software rollout within a manufacturing environment."
+        },
+        "assumption_notes": [
+          "Base units per year (30) represent the number of major factory planning or optimization projects for a single factory that would significantly leverage the digital twin annually.",
+          "Manual hours per unit (200) assume a substantial engineering effort for each major optimization project, which the digital twin then augments.",
+          "Energy kWh per unit (50) is an estimate of computational energy usage (e.g., high-end GPUs) per major simulation/optimization project.",
+          "Safety incident cost delta per year (75,000) is a conservative estimate of avoided costs from preventing 1-2 medium-severity safety incidents through better-designed layouts and processes.",
+          "Scrap and rework costs per unit (2,000 and 1,500 respectively) represent the estimated costs of errors or suboptimal designs that would otherwise lead to physical scrap/rework for each optimized process, which the digital twin helps prevent.",
+          "Initial CAPEX (1,500,000) includes NVIDIA Omniverse Enterprise licenses, custom development, and significant high-performance computing (HPC) infrastructure needed for a full-factory digital twin.",
+          "Initial Integration (750,000) reflects the complexity and cost of integrating the digital twin platform with various existing BMW enterprise systems (e.g., PLM, MES, ERP, IoT sensors).",
+          "Annual Software (200,000) covers ongoing enterprise licenses and subscriptions.",
+          "Annual Data Ops (100,000) covers costs for data engineers, data pipeline maintenance, and cloud resources for data storage and synchronization required to keep the digital twin current and accurate."
+        ],
+        "open_questions": [
+          "What is the required level of detail and fidelity for the digital twin to be truly effective across all identified tasks?",
+          "What are the specific data integration challenges and costs associated with connecting the digital twin to existing BMW systems (e.g., PLM, MES, ERP, IoT sensors)?",
+          "What are the full lifecycle costs, including initial software licenses, required high-performance computing infrastructure, ongoing maintenance, and specialized training for engineers?",
+          "How will the digital twin be governed and maintained to ensure data accuracy and currency over time, adapting to continuous changes in the physical factory?",
+          "What change management strategies are needed to integrate this advanced tool into existing engineering workflows and ensure widespread adoption and proficiency among users?"
+        ]
+      },
+      "regional_inputs": {
+        "wage_multiplier_vs_baseline": 1.25,
+        "energy_cost_per_kwh": 0.25,
+        "maintenance_multiplier": 1.1
+      },
+      "economic_model_type": "SOFTWARE"
+    }
+  },
+  "updated_at": "2026-05-04T10:19:33.521487"
+}

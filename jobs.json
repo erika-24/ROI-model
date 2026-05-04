@@ -1,0 +1,35 @@
+[
+  {
+    "technologyName": "OpenOOD v1.5",
+    "technologyDescription": "OOD detection framework for anomaly detection",
+    "trlLevel": "4",
+    "jobTitle": "Validation Engineers",
+    "task": "Analyze validation test data and identify anomalies",
+    "capability": "Detect input data outside training distribution",
+    "idea": "Integrate into validation pipeline to flag anomalous production data",
+    "fitLevel": "HIGH",
+    "fitRationale": "Improves root cause analysis and reduces debugging time"
+  },
+  {
+    "technologyName": "Adapter",
+    "technologyDescription": "Adds small trainable modules to adapt a frozen backbone",
+    "trlLevel": "7",
+    "jobTitle": "Automotive Engineering Technicians",
+    "task": "Set up mechanical, hydraulic, or electric test equipment",
+    "capability": "Inject trainable parameters into frozen model architectures",
+    "idea": "Use adapters to customize a vision-language model for failure pattern recognition",
+    "fitLevel": "MED",
+    "fitRationale": "Useful for adapting models to BMW-specific test environments"
+  },
+  {
+    "technologyName": "Full Factory Digital Twin Coverage (NVIDIA Omniverse)",
+    "technologyDescription": "A full-factory digital twin built with NVIDIA Omniverse to simulate production flows, validate layouts, test process changes, and identify bottlenecks before physical implementation.",
+    "trlLevel": "8",
+    "jobTitle": "Manufacturing Systems Engineers",
+    "task": "Plan, validate, and optimize factory layouts, production processes, throughput, and root-cause analysis for manufacturing operations.",
+    "capability": "Simulate full-factory operations and evaluate process changes virtually before deployment",
+    "idea": "Manufacturing systems engineers can use NVIDIA Omniverse to create full digital twin coverage of a BMW factory for analysis.",
+    "fitLevel": "HIGH",
+    "fitRationale": "A full-factory digital twin directly supports manufacturing optimization, reduces physical trial-and-error, improves throughput planning, and helps validate changes before costly implementation."
+  }
+]

@@ -42,8 +42,11 @@ import numpy as np
 import pandas as pd
 import time
 
+import streamlit as st
 from google import genai
 import matplotlib.pyplot as plt
+
+from roi_shared_state import load_roi_state, save_roi_state, save_row_state, get_row_state, update_row_state, get_assumption_notes
 
 
 # -----------------------------
@@ -65,17 +68,14 @@ class Country(Enum):
     MEXICO = auto()
 
 class SolutionType(Enum):
-    HUMANOID = auto()
-    DIGITAL_TWIN = auto()
+    HARDWARE = auto()
+    SOFTWARE = auto()
 
 @dataclass
 class EconomicAssumptions:
     discount_rate: float = 0.10  # WACC / hurdle rate (10%)
     horizon_years: int = 7  # planning horizon
     inflation_labor: float = 0.03  # annual labor inflation
-    inflation_maintenance: float = 0.02  # annual maintenance inflation
-    inflation_energy: float = 0.03  # annual energy inflation
-    carbon_price_per_ton: float = 0.0  # optional monetization of CO2
 
 @dataclass(frozen=True)
 class CountryAssumptions:
@@ -158,7 +158,7 @@ class DeploymentPlan:
     shifts_per_day: float = 2.0
 
 @dataclass
-class DigitalTwinParams:
+class SoftwareParams:
     # One-time program costs (Yr 1)
     capex_initial: float = 1_200_000     # platform + initial build
     integration_initial: float = 600_000 # data connectors, MES/SCADA, models
@@ -192,7 +192,7 @@ class Scenario:
     perf: PerformanceParams
     deploy: DeploymentPlan
     # learning: LearningCurve
-    digital_twin: DigitalTwinParams = field(default_factory=DigitalTwinParams)
+    software: SoftwareParams = field(default_factory=SoftwareParams)
     include_revenue_uplift: bool = False  # toggles monetization of throughput
 
 
@@ -248,11 +248,11 @@ class Model:
         self.scenario.costs.maintenance_per_unit_per_year *= ca.maintenance_multiplier
     
     def apply_solution_preset(self):
-        """Adjust parameters to represent HUMANOID vs DIGITAL_TWIN scenarios."""
+        """Adjust parameters to represent HARDWARE vs SOFTWARE scenarios."""
         sc = self.scenario
 
-        if sc.solution == SolutionType.HUMANOID:
-            # Humanoid: higher capex+maintenance, but can replace more direct labor time
+        if sc.solution == SolutionType.HARDWARE:
+            # HARDWARE: higher capex+maintenance, but can replace more direct labor time
             # (tune later; this is a demo-ready starting point)
             sc.costs.capex_per_unit *= 1.6
             sc.costs.integration_per_unit *= 1.3
@@ -261,7 +261,7 @@ class Model:
             # Typically more human oversight early than fixed automation, but less than manual
             sc.labor.automated_supervision_hours_per_unit *= 1.5
 
-            # Humanoids are pitched on flexibility → assume bigger effective labor displacement
+            # HARDWARE solutions are pitched on flexibility → assume bigger effective labor displacement
             # (reduce manual baseline time required per unit by improving automation coverage)
             sc.labor.manual_hours_per_unit *= 1.00  # keep baseline for manual scenario
             # Instead, represent benefits through lower supervision burden vs manual:
@@ -270,11 +270,11 @@ class Model:
             # Deployment ramp: usually slower ramp than mature cobots
             sc.deploy.ramp = [sc.deploy.ramp[0]] + [max(1, int(x * 0.8)) for x in sc.deploy.ramp[1:]]
 
-            # Optional: if execs want revenue uplift, humanoids often pitched as capacity unlock
+            # Optional: if execs want revenue uplift, HARDWARE solutions often pitched as capacity unlock
             # sc.include_revenue_uplift = True
 
-        elif sc.solution == SolutionType.DIGITAL_TWIN:
-            # Digital twin: not "cells". We’ll model 0 robotic cells and shift spend into software program costs.
+        elif sc.solution == SolutionType.SOFTWARE:
+            # Software: not "cells". We’ll model 0 robotic cells and shift spend into software CAPEX costs.
             sc.deploy.ramp = [0] * sc.economics.horizon_years
 
             # Set robot-cell costs to zero so we don’t double-count
@@ -494,7 +494,7 @@ class Model:
         scenario = Scenario(
             application=app,
             country=Country.USA,
-            solution=SolutionType.HUMANOID,
+            solution=SolutionType.HARDWARE,
             economics=economics,
             demand=demand,
             labor=labor,
@@ -596,7 +596,7 @@ class Model:
             # )
             # cum_units = deployed_units
 
-            if sc.solution == SolutionType.DIGITAL_TWIN:
+            if sc.solution == SolutionType.SOFTWARE:
                 # No cells; program costs instead
                 deployed_units = 0
                 add_units = 0
@@ -604,11 +604,11 @@ class Model:
 
                 # Yr1 one-time program costs
                 if t == 0:
-                    capex_new = sc.digital_twin.capex_initial + sc.digital_twin.integration_initial
+                    capex_new = sc.software.capex_initial + sc.software.integration_initial
 
                 cum_units = 0
             else:
-                # HUMANOID (or other embodied robotics)
+                # HARDWARE (embodied robotics)
                 deployed_units = ramp[t]
                 add_units = max(deployed_units - cum_units, 0)
                 capex_unit = sc.costs.capex_per_unit
@@ -618,9 +618,19 @@ class Model:
                 cum_units = deployed_units
 
             # Automated operational costs
-            # Supervision labor
-            auto_hours = sc.labor.automated_supervision_hours_per_unit * demand_units
-            auto_labor_cost = auto_hours * wage_by_year[t]
+            # Residual labor model:
+            # - automation_capture_pct is the share of manual labor removed by the technology
+            # - residual manual labor remains when automation_capture_pct < 1
+            # - supervision labor is added on top
+            manual_hours_total = sc.labor.manual_hours_per_unit * demand_units
+            automation_capture_pct = max(0.0, min(1.0, sc.labor.automation_capture_pct))
+
+            residual_manual_hours = manual_hours_total * (1 - automation_capture_pct)
+            supervision_hours = sc.labor.automated_supervision_hours_per_unit * demand_units
+            auto_hours = residual_manual_hours + supervision_hours
+
+            auto_labor_cost = auto_hours * automated_wage_by_year[t]
+
             # Maintenance is per deployed cell per year
             auto_maintenance = cum_units * maint_by_year[t]
             # Energy & consumables per unit of demand processed
@@ -640,24 +650,40 @@ class Model:
             # Safety deltas
             safety_delta = sc.labor.safety_incident_cost_delta_per_year  # negative -> savings
 
-            if sc.solution == SolutionType.DIGITAL_TWIN:
-                # Digital twin opex
-                auto_labor_cost = sc.digital_twin.data_ops_per_year
+            if sc.solution == SolutionType.SOFTWARE:
+                # Software does not deploy physical cells.
+                # It changes economics through:
+                # - one-time software CAPEX in Year 1
+                # - recurring software/data-ops costs
+                # - partial labor efficiency
+                # - defect/rework reduction
+                # - optional throughput revenue uplift
+
                 auto_maintenance = 0.0
                 auto_energy = 0.0
                 auto_consumables = 0.0
-                auto_defect_cost = manual_defect_cost * (1 - sc.digital_twin.defect_reduction_pct)
                 safety_delta = 0.0
-                subscription = sc.digital_twin.software_per_year
 
-                # Baseline remains the original manual case. Benefits show up only in automated case.
+                subscription = sc.software.software_per_year
+                data_ops = sc.software.data_ops_per_year
+
+                labor_efficiency_pct = max(0.0, min(1.0, sc.software.labor_efficiency_pct))
+                software_defect_reduction_pct = max(0.0, min(1.0, sc.software.defect_reduction_pct))
+
+                # Software typically augments rather than fully replaces workers.
+                # Automated-state labor cost is manual labor after software efficiency improvement,
+                # plus data/MLOps support.
+                auto_labor_cost = manual_labor_cost * (1 - labor_efficiency_pct) + data_ops
+
+                auto_defect_cost = manual_defect_cost * (1 - software_defect_reduction_pct)
+
                 revenue_uplift = 0.0
                 if (
                     sc.include_revenue_uplift
                     and sc.demand.revenue_per_unit > 0
-                    and sc.digital_twin.throughput_uplift_pct > 0
+                    and sc.software.throughput_uplift_pct > 0
                 ):
-                    extra_units = demand_units * sc.digital_twin.throughput_uplift_pct
+                    extra_units = demand_units * sc.software.throughput_uplift_pct
                     revenue_uplift = extra_units * sc.demand.revenue_per_unit
 
                 auto_total_opex = (
@@ -732,10 +758,29 @@ class Model:
         total_capex = df["CAPEX_new"].sum()
         total_manual = df["Manual_Total"].sum()
         total_auto_opex = df["Auto_OPEX"].sum()
+        total_revenue_uplift = df["Revenue_Uplift"].sum()
+
+        # Operating savings before upfront investment. Using CAPEX-only
+        # ROI can behave backwards when operating savings are negative because
+        # (negative savings - CAPEX) / CAPEX becomes less negative as CAPEX grows.
         total_savings = total_manual - total_auto_opex
-        roi = (
-            (total_savings - total_capex) / total_capex if total_capex > 0 else np.nan
+
+        # Total-cost ROI / benefit-cost style ROI:
+        #   benefits = avoided manual operating cost + monetized revenue uplift
+        #   costs    = automated operating cost + upfront CAPEX
+        # This keeps CAPEX as a true cost: holding all else constant, increasing
+        # CAPEX always lowers ROI.
+        total_project_cost = total_auto_opex + total_capex
+        net_benefit_after_all_costs = (
+            total_manual + total_revenue_uplift - total_project_cost
         )
+
+        roi = (
+            net_benefit_after_all_costs / total_project_cost
+            if total_project_cost > 0
+            else np.nan
+        )
+        
 
         summary = {
             "NPV": npv_net,
@@ -743,7 +788,10 @@ class Model:
             "Total_CAPEX": total_capex,
             "Total_Manual_OPEX": total_manual,
             "Total_Auto_OPEX": total_auto_opex,
+            "Total_Revenue_Uplift": total_revenue_uplift,
+            "Total_Project_Cost": total_project_cost,
             "Total_Savings_vs_Manual": total_savings,
+            "Net_Benefit_After_All_Costs": net_benefit_after_all_costs,
             "ROI": roi,
         }
 
@@ -893,39 +941,6 @@ def build_model_from_args(args: argparse.Namespace) -> Model:
     return model
 
 
-def run_cli(args: argparse.Namespace):
-    model = build_model_from_args(args)
-
-    if getattr(args, "row_json", None):
-        with open(args.row_json, "r", encoding="utf-8") as f:
-            row_dict = json.load(f)
-        country = model.scenario.country
-        regional_inputs = get_default_regional_inputs(country)
-        output = evaluate_matchmaking_row(row_dict, model, country, regional_inputs)
-        print(json.dumps(output, indent=2, default=str))
-        return
-
-    res = model.run()
-
-    # Print summary
-    print("\n=== SUMMARY ===")
-    for k, v in res.summary().items():
-        if isinstance(v, float):
-            print(f"{k:>24}: {v:,.2f}")
-        else:
-            print(f"{k:>24}: {v}")
-
-    # CSV export
-    if args.out:
-        out_path = args.out
-        res.yearly.to_csv(out_path, index=False)
-        print(f"\nSaved yearly breakdown to: {out_path}")
-
-    # Plot
-    if args.plot:
-        plot_cashflows(res, title=f"{model.scenario.application.name.title()} — Cashflows")
-
-
 PARAMETER_BUCKET_ORDER = [
     "Finance",
     "Demand & Revenue",
@@ -933,17 +948,17 @@ PARAMETER_BUCKET_ORDER = [
     "Technology Costs",
     "Performance & Quality",
     "Deployment & Rollout",
-    "Digital Twin Program",
+    "Software Costs",
 ]
 
 PARAMETER_BUCKET_GUIDES = {
     "Finance": "Financial assumptions that drive discounting and annual cost escalation.",
     "Demand & Revenue": "Business volume assumptions. Revenue per unit is only used when revenue uplift is turned on.",
     "Labor Baseline": "Manual-state labor assumptions and safety impact. These set the baseline that automation is compared against.",
-    "Technology Costs": "Direct technology spend for embodied robotics. These are not used in digital twin mode once the digital-twin preset is applied.",
+    "Technology Costs": "Direct technology spend for embodied robotics. These are not used in software mode once the software preset is applied.",
     "Performance & Quality": "Operational performance and quality assumptions. Defect and throughput changes are important drivers of ROI.",
     "Deployment & Rollout": "How quickly the technology is rolled out over time. Ramp should be a comma-separated list by year.",
-    "Digital Twin Program": "One-time and recurring costs plus benefits for the digital twin option.",
+    "Software Costs": "One-time and recurring costs plus benefits for the software option.",
 }
 
 PARAMETER_METADATA = [
@@ -957,7 +972,7 @@ PARAMETER_METADATA = [
         "max_value": 0.5,
         "step": 0.005,
         "format": "%.3f",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "economics.horizon_years",
@@ -968,7 +983,7 @@ PARAMETER_METADATA = [
         "min_value": 1,
         "max_value": 20,
         "step": 1,
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "economics.inflation_labor",
@@ -980,7 +995,7 @@ PARAMETER_METADATA = [
         "max_value": 0.2,
         "step": 0.005,
         "format": "%.3f",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "economics.inflation_maintenance",
@@ -992,7 +1007,7 @@ PARAMETER_METADATA = [
         "max_value": 0.2,
         "step": 0.005,
         "format": "%.3f",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "economics.inflation_energy",
@@ -1004,18 +1019,7 @@ PARAMETER_METADATA = [
         "max_value": 0.2,
         "step": 0.005,
         "format": "%.3f",
-        "solutions": ["humanoid", "digital_twin"],
-    },
-    {
-        "path": "economics.carbon_price_per_ton",
-        "bucket": "Finance",
-        "label": "Carbon price per ton",
-        "help": "Currently stored but not yet used in the cash flow equations. Keep here for future CO2 monetization.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 500.0,
-        "step": 5.0,
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "include_revenue_uplift",
@@ -1023,7 +1027,7 @@ PARAMETER_METADATA = [
         "label": "Include revenue uplift",
         "help": "Turn on monetization of extra throughput or capacity created by the technology.",
         "kind": "bool",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "demand.base_units_per_year",
@@ -1034,7 +1038,7 @@ PARAMETER_METADATA = [
         "min_value": 0,
         "max_value": 100000000,
         "step": 1000,
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "demand.annual_growth",
@@ -1046,7 +1050,7 @@ PARAMETER_METADATA = [
         "max_value": 0.5,
         "step": 0.005,
         "format": "%.3f",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "demand.revenue_per_unit",
@@ -1057,7 +1061,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 100000.0,
         "step": 10.0,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.3f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.wage_per_hour",
@@ -1068,7 +1073,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 500.0,
         "step": 1.0,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.2f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.manual_hours_per_unit",
@@ -1079,8 +1085,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 10.0,
         "step": 0.001,
-        "format": "%.4f",
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.1f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.automated_supervision_hours_per_unit",
@@ -1091,8 +1097,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 10.0,
         "step": 0.001,
-        "format": "%.4f",
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.1f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.automation_capture_pct",
@@ -1104,7 +1110,7 @@ PARAMETER_METADATA = [
         "max_value": 1.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.automated_wage_per_hour",
@@ -1115,7 +1121,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 500.0,
         "step": 1.0,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.2f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "labor.safety_incident_cost_delta_per_year",
@@ -1126,7 +1133,8 @@ PARAMETER_METADATA = [
         "min_value": -10000000.0,
         "max_value": 10000000.0,
         "step": 1000.0,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.2f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "costs.capex_per_unit",
@@ -1137,7 +1145,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 10000000.0,
         "step": 10000.0,
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.install_commission_per_unit",
@@ -1148,7 +1157,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 5000000.0,
         "step": 5000.0,
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.integration_per_unit",
@@ -1159,7 +1169,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 5000000.0,
         "step": 5000.0,
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.maintenance_per_unit_per_year",
@@ -1170,7 +1181,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 1000000.0,
         "step": 1000.0,
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.energy_kwh_per_unit",
@@ -1181,8 +1193,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 1000.0,
         "step": 0.01,
-        "format": "%.3f",
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.energy_cost_per_kwh",
@@ -1193,8 +1205,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 5.0,
         "step": 0.01,
-        "format": "%.3f",
-        "solutions": ["humanoid"],
+        "format": "%.2f",
+        "solutions": ["hardware"],
     },
     {
         "path": "costs.consumables_per_unit",
@@ -1205,41 +1217,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 10000.0,
         "step": 0.01,
-        "solutions": ["humanoid"],
-    },
-    {
-        "path": "perf.cycle_time_seconds",
-        "bucket": "Performance & Quality",
-        "label": "Automated cycle time (seconds)",
-        "help": "Currently stored but not yet directly used in the cash flow equations.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 10000.0,
-        "step": 0.1,
-        "solutions": ["humanoid", "digital_twin"],
-    },
-    {
-        "path": "perf.uptime_pct",
-        "bucket": "Performance & Quality",
-        "label": "Uptime",
-        "help": "Currently stored but not yet directly used in the cash flow equations.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 1.0,
-        "step": 0.01,
         "format": "%.2f",
-        "solutions": ["humanoid", "digital_twin"],
-    },
-    {
-        "path": "perf.manual_cycle_time_seconds",
-        "bucket": "Performance & Quality",
-        "label": "Manual cycle time (seconds)",
-        "help": "Currently stored but not yet directly used in the cash flow equations.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 10000.0,
-        "step": 0.1,
-        "solutions": ["humanoid", "digital_twin"],
+        "solutions": ["hardware"],
     },
     {
         "path": "perf.defect_rate_change_pct",
@@ -1251,7 +1230,7 @@ PARAMETER_METADATA = [
         "max_value": 1.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["humanoid"],
+        "solutions": ["hardware"],
     },
     {
         "path": "perf.scrap_cost_per_unit",
@@ -1262,7 +1241,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 100000.0,
         "step": 0.01,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.2f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "perf.rework_cost_per_unit",
@@ -1273,7 +1253,8 @@ PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 100000.0,
         "step": 0.01,
-        "solutions": ["humanoid", "digital_twin"],
+        "format": "%.2f",
+        "solutions": ["hardware", "software"],
     },
     {
         "path": "perf.throughput_change_pct",
@@ -1285,18 +1266,7 @@ PARAMETER_METADATA = [
         "max_value": 5.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["humanoid"],
-    },
-    {
-        "path": "deploy.units_initial",
-        "bucket": "Deployment & Rollout",
-        "label": "Initial units",
-        "help": "Currently stored but not yet directly used in the yearly deployment equations. Ramp drives deployments.",
-        "kind": "int",
-        "min_value": 0,
-        "max_value": 10000,
-        "step": 1,
-        "solutions": ["humanoid"],
+        "solutions": ["hardware"],
     },
     {
         "path": "deploy.ramp",
@@ -1304,78 +1274,59 @@ PARAMETER_METADATA = [
         "label": "Deployment ramp by year",
         "help": "Comma-separated cumulative deployed cells for each year, such as 4,8,12,16,20,24,28.",
         "kind": "int_list",
-        "solutions": ["humanoid"],
+        "solutions": ["hardware"],
     },
     {
-        "path": "deploy.utilization_pct",
-        "bucket": "Deployment & Rollout",
-        "label": "Utilization",
-        "help": "Currently stored but not yet directly used in the cash flow equations.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 1.0,
-        "step": 0.01,
-        "format": "%.2f",
-        "solutions": ["humanoid"],
-    },
-    {
-        "path": "deploy.shifts_per_day",
-        "bucket": "Deployment & Rollout",
-        "label": "Shifts per day",
-        "help": "Currently stored but not yet directly used in the cash flow equations.",
-        "kind": "float",
-        "min_value": 0.0,
-        "max_value": 5.0,
-        "step": 0.1,
-        "solutions": ["humanoid"],
-    },
-    {
-        "path": "digital_twin.capex_initial",
-        "bucket": "Digital Twin Program",
+        "path": "software.capex_initial",
+        "bucket": "Software Costs",
         "label": "Initial platform CAPEX",
-        "help": "One-time year-1 digital twin platform build cost.",
+        "help": "One-time year-1 software platform build cost.",
         "kind": "float",
         "min_value": 0.0,
         "max_value": 50000000.0,
         "step": 50000.0,
-        "solutions": ["digital_twin"],
+        "format": "%.2f",
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.integration_initial",
-        "bucket": "Digital Twin Program",
+        "path": "software.integration_initial",
+        "bucket": "Software Costs",
         "label": "Initial integration",
         "help": "One-time year-1 systems integration and data modeling cost.",
         "kind": "float",
         "min_value": 0.0,
         "max_value": 50000000.0,
         "step": 50000.0,
-        "solutions": ["digital_twin"],
+        "format": "%.2f",
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.software_per_year",
-        "bucket": "Digital Twin Program",
+        "path": "software.software_per_year",
+        "bucket": "Software Costs",
         "label": "Software per year",
         "help": "Annual license or subscription cost.",
         "kind": "float",
         "min_value": 0.0,
         "max_value": 50000000.0,
         "step": 10000.0,
-        "solutions": ["digital_twin"],
+        "format": "%.2f",
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.data_ops_per_year",
-        "bucket": "Digital Twin Program",
+        "path": "software.data_ops_per_year",
+        "bucket": "Software Costs",
         "label": "Data ops per year",
         "help": "Annual data, MLOps, and engineering support cost.",
         "kind": "float",
         "min_value": 0.0,
         "max_value": 50000000.0,
         "step": 10000.0,
-        "solutions": ["digital_twin"],
+        "format": "%.2f",
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.defect_reduction_pct",
-        "bucket": "Digital Twin Program",
+        "path": "software.defect_reduction_pct",
+        "bucket": "Software Costs",
         "label": "Defect reduction",
         "help": "Reduction in scrap and rework cost versus the manual baseline.",
         "kind": "float",
@@ -1383,11 +1334,11 @@ PARAMETER_METADATA = [
         "max_value": 1.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["digital_twin"],
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.labor_efficiency_pct",
-        "bucket": "Digital Twin Program",
+        "path": "software.labor_efficiency_pct",
+        "bucket": "Software Costs",
         "label": "Labor efficiency improvement",
         "help": "Currently stored for future use. The present cash flow logic does not directly monetize this parameter.",
         "kind": "float",
@@ -1395,11 +1346,11 @@ PARAMETER_METADATA = [
         "max_value": 1.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["digital_twin"],
+        "solutions": ["software"],
     },
     {
-        "path": "digital_twin.throughput_uplift_pct",
-        "bucket": "Digital Twin Program",
+        "path": "software.throughput_uplift_pct",
+        "bucket": "Software Costs",
         "label": "Throughput uplift",
         "help": "Capacity increase used for revenue uplift when revenue uplift is enabled.",
         "kind": "float",
@@ -1407,7 +1358,7 @@ PARAMETER_METADATA = [
         "max_value": 5.0,
         "step": 0.01,
         "format": "%.2f",
-        "solutions": ["digital_twin"],
+        "solutions": ["software"],
     },
 ]
 
@@ -1430,7 +1381,7 @@ REGIONAL_PARAMETER_METADATA = [
         "min_value": 0.0,
         "max_value": 5.0,
         "step": 0.01,
-        "format": "%.3f",
+        "format": "%.2f",
     },
     {
         "key": "maintenance_multiplier",
@@ -1524,6 +1475,122 @@ def build_parameter_table(model: Model, solution: SolutionType, regional_inputs:
     for col in df.columns:
         df[col] = df[col].astype(str)
     return df
+    
+
+def build_assumption_rationale_table(model: Model, solution: SolutionType) -> pd.DataFrame:
+    sol_key = solution.name.lower()
+
+    # BMW-scale software deployment assumptions
+    num_plants = 12
+    units_per_plant = model.scenario.demand.base_units_per_year / num_plants
+
+    gpus_per_plant = 8
+    central_gpus = 48
+    total_gpus = (num_plants * gpus_per_plant) + central_gpus
+
+    omniverse_cost_per_gpu_year = 4500
+    estimated_omniverse_license_cost = total_gpus * omniverse_cost_per_gpu_year
+
+    rationale_map = {
+        "economics.discount_rate": (
+            "Uses an 8% enterprise hurdle/WACC-style rate, appropriate for a large OEM capital allocation case."
+        ),
+        "economics.horizon_years": (
+            "Seven years captures enterprise rollout, integration maturity, and recurring operational benefits."
+        ),
+        "economics.inflation_labor": (
+            "3.5% labor inflation reflects rising skilled manufacturing labor costs."
+        ),
+        "economics.inflation_maintenance": (
+            "2.5% maintenance inflation reflects moderate annual escalation in technical support costs."
+        ),
+        "economics.inflation_energy": (
+            "4.0% energy inflation is conservative for industrial compute and manufacturing energy exposure."
+        ),
+
+        "include_revenue_uplift": (
+            "Kept off by default so ROI is driven by cost savings, not speculative incremental revenue."
+        ),
+        "demand.base_units_per_year": (
+            f"Models {model.scenario.demand.base_units_per_year:,.0f} units/year across {num_plants} plants, "
+            f"or about {units_per_plant:,.0f} units per plant per year."
+        ),
+        "demand.annual_growth": (
+            "2.0% annual growth is modest and avoids overstating volume-driven benefits."
+        ),
+        "demand.revenue_per_unit": (
+            "Set to $0 because revenue uplift is disabled; throughput benefits are not monetized unless explicitly enabled."
+        ),
+
+        "labor.wage_per_hour": (
+            "Uses fully loaded skilled automotive labor cost, including wage, benefits, and overhead burden."
+        ),
+        "labor.manual_hours_per_unit": (
+            "Represents baseline manual planning, inspection, coordination, or disruption-response effort per unit."
+        ),
+        "labor.automated_supervision_hours_per_unit": (
+            "Captures remaining human oversight after software-enabled automation; not assumed to be lights-out."
+        ),
+        "labor.automation_capture_pct": (
+            "Models partial automation capture rather than full labor replacement, which is more defensible for software-led factory optimization."
+        ),
+        "labor.automated_wage_per_hour": (
+            "Represents automation-side supervisory or technical operations labor."
+        ),
+        "labor.safety_incident_cost_delta_per_year": (
+            "Annual safety benefit from reducing manual intervention, line disruptions, and high-risk operational tasks."
+        ),
+
+        "perf.scrap_cost_per_unit": (
+            "Estimated unit-level cost of scrap or wasted production output affected by better simulation and process control."
+        ),
+        "perf.rework_cost_per_unit": (
+            "Estimated unit-level cost of rework, quality correction, and production recovery."
+        ),
+
+        "software.capex_initial": (
+            "One-time platform and infrastructure CAPEX for a 12-plant digital twin / simulation deployment, including compute, storage, networking, and enterprise setup."
+        ),
+        "software.integration_initial": (
+            "Initial integration cost for connecting plant systems such as MES, SCADA, PLC data, CAD/BOM sources, and production data pipelines."
+        ),
+        "software.software_per_year": (
+            f"Assumes {gpus_per_plant} GPUs per plant across {num_plants} plants plus {central_gpus} central GPUs "
+            f"= {total_gpus} total GPUs. At ${omniverse_cost_per_gpu_year:,.0f}/GPU/year, estimated Omniverse-style "
+            f"license cost is about ${estimated_omniverse_license_cost:,.0f}/year before enterprise discounts or support adders."
+        ),
+        "software.data_ops_per_year": (
+            "Annual cost for data engineering, simulation model upkeep, MLOps, model validation, and factory-data pipeline maintenance."
+        ),
+        "software.defect_reduction_pct": (
+            "Conservative quality improvement from better virtual commissioning, simulation, anomaly detection, and process optimization."
+        ),
+        "software.labor_efficiency_pct": (
+            "Expected productivity gain from faster planning, fewer disruptions, better root-cause analysis, and reduced manual coordination."
+        ),
+        "software.throughput_uplift_pct": (
+            "Conservative capacity uplift from improved bottleneck analysis, scheduling, and factory-flow optimization."
+        ),
+    }
+
+    rows = []
+    for meta in PARAMETER_METADATA:
+        if sol_key not in meta["solutions"]:
+            continue
+
+        path = meta["path"]
+        value = get_param_value(model, path)
+
+        rows.append({
+            "Parameter": meta["label"],
+            "Value": safe_for_display(value),
+            "Rationale": rationale_map.get(
+                path,
+                "Selected as a conservative starting assumption for the modeled BMW scenario."
+            ),
+        })
+
+    return pd.DataFrame(rows)
 
 
 def render_meta_widget(st, model: Model, meta: Dict[str, Any], key_prefix: str):
@@ -1541,8 +1608,8 @@ def render_meta_widget(st, model: Model, meta: Dict[str, Any], key_prefix: str):
             safe_value = meta.get("default", meta.get("min_value", 0))
         value = st.number_input(
             label,
-            min_value=int(meta["min_value"]) if meta.get("min_value") is not None else None,
-            max_value=int(meta["max_value"]) if meta.get("max_value") is not None else None,
+            # min_value=int(meta["min_value"]) if meta.get("min_value") is not None else None,
+            # max_value=int(meta["max_value"]) if meta.get("max_value") is not None else None,
             value=int(safe_value),
             step=int(meta.get("step", 1)),
             help=help_text,
@@ -1554,8 +1621,8 @@ def render_meta_widget(st, model: Model, meta: Dict[str, Any], key_prefix: str):
             safe_value = meta.get("default", meta.get("min_value", 0.0))
         value = st.number_input(
             label,
-            min_value=float(meta["min_value"]) if meta.get("min_value") is not None else None,
-            max_value=float(meta["max_value"]) if meta.get("max_value") is not None else None,
+            # min_value=float(meta["min_value"]) if meta.get("min_value") is not None else None,
+            # max_value=float(meta["max_value"]) if meta.get("max_value") is not None else None,
             value=float(safe_value),
             step=float(meta.get("step", 0.01)),
             format=meta.get("format", "%.4f"),
@@ -1608,15 +1675,15 @@ def render_parameter_editor(
         bucket_items = [m for m in PARAMETER_METADATA if m["bucket"] == bucket and sol_key in m["solutions"]]
         if not bucket_items:
             continue
-        with st.expander(bucket, expanded=(bucket in {"Finance", "Demand & Revenue", "Labor Baseline"})):
+        with st.expander(bucket, expanded=False):
             st.caption(PARAMETER_BUCKET_GUIDES[bucket])
             for meta in bucket_items:
                 render_meta_widget(st, model, meta, key_prefix)
 
-    with st.expander("Regional Assumptions", expanded=True):
-        st.caption("These are editable run-level overrides for the currently selected country. They are applied after baseline assumptions and before solution presets.")
-        for meta in REGIONAL_PARAMETER_METADATA:
-            render_regional_widget(st, regional_inputs, meta, key_prefix)
+    # with st.expander("Regional Assumptions", expanded=False):
+    #     st.caption("These are editable run-level overrides for the currently selected country. They are applied after baseline assumptions and before solution presets.")
+    #     for meta in REGIONAL_PARAMETER_METADATA:
+    #         render_regional_widget(st, regional_inputs, meta, key_prefix)
 
 def show_model_guide(st):
     with st.expander("How to use this model", expanded=False):
@@ -1680,22 +1747,6 @@ def collect_editable_model_inputs(model: Model, solution: SolutionType) -> Dict[
     return overrides
 
 
-def update_roi_output_from_model(output: Dict[str, Any], model: Model, solution: SolutionType, regional_inputs: Dict[str, float]) -> Dict[str, Any]:
-    """Recalculate output dictionaries from an already-edited model. Does not call Gemini."""
-    updated = deepcopy(output)
-    current_results = model.run()
-    updated["current_horizon_summary"] = current_results.summary()
-    updated["horizon_outputs"] = summarize_horizon_metrics_from_model(model).to_dict(orient="records")
-    updated["yearly"] = current_results.yearly.to_dict(orient="records")
-    updated["economic_model_type"] = solution.name
-    updated["regional_inputs"] = dict(regional_inputs)
-
-    generated_inputs = deepcopy(updated.get("generated_inputs", {}))
-    generated_inputs["scenario_overrides"] = collect_editable_model_inputs(model, solution)
-    updated["generated_inputs"] = generated_inputs
-    return updated
-
-
 def idea_template_payload(idea_text: str, app: ApplicationType, country: Country, solution: Optional[SolutionType] = None) -> Dict[str, Any]:
     return {
         "idea_name": idea_text[:80] if idea_text else "New technology idea",
@@ -1728,6 +1779,7 @@ def build_breakdown_prompt(idea_text: str, app: ApplicationType, country: Countr
         f"""
         You are helping BMW evaluate a technology idea for an ROI model.
         Break the idea into the economic building blocks needed for modeling.
+        The 'x' placeholders indicate a place where you need to substitute a reasonable numerical value.
 
         Return valid JSON only with this schema:
         {{
@@ -1737,9 +1789,9 @@ def build_breakdown_prompt(idea_text: str, app: ApplicationType, country: Countr
           "labor_mode": {{
             "mode": "replacement | augment | skill_shift",
             "reasoning": "...",
-            "automation_capture_pct": 0.0,
-            "baseline_wage_per_hour": 0.0,
-            "automated_wage_per_hour": 0.0
+            "automation_capture_pct": x,
+            "baseline_wage_per_hour": x,
+            "automated_wage_per_hour": x
           }},
           "components": [
             {{"name": "hardware", "included": true, "description": "...", "cost_driver_type": "capex_per_unit | capex_initial | none"}},
@@ -1770,40 +1822,41 @@ def build_input_generation_prompt(idea_text: str, app: ApplicationType, country:
         f"""
         You are generating starting-point ROI inputs for BMW's technology economics model.
         Use realistic but conservative assumptions, and specifically overestimate on CAPEX. Prefer transparent ranges over aggressive values. 
-        Use a relatively large-scale for units; consider the size of a given BMW operation.
+        Use a relatively large-scale for units; consider the size of a given BMW operation. Costs / CAPEX can never total $0.
+        Fill in reasonable numerical values for the 'x' placeholders. Base units per year must be greater than 0.
 
         Return valid JSON only with this schema:
         {{
           "reasoning": "...",
           "scenario_overrides": {{
             "include_revenue_uplift": false,
-            "demand.base_units_per_year": 0,
-            "demand.annual_growth": 0.0,
-            "demand.revenue_per_unit": 0.0,
-            "labor.wage_per_hour": 0.0,
-            "labor.manual_hours_per_unit": 0.0,
-            "labor.automated_supervision_hours_per_unit": 0.0,
-            "labor.automation_capture_pct": 0.0,
-            "labor.automated_wage_per_hour": 0.0,
-            "labor.safety_incident_cost_delta_per_year": 0.0,
-            "costs.capex_per_unit": 0.0,
-            "costs.install_commission_per_unit": 0.0,
-            "costs.integration_per_unit": 0.0,
-            "costs.maintenance_per_unit_per_year": 0.0,
-            "costs.energy_kwh_per_unit": 0.0,
-            "costs.consumables_per_unit": 0.0,
-            "perf.defect_rate_change_pct": 0.0,
-            "perf.throughput_change_pct": 0.0,
-            "perf.scrap_cost_per_unit": 0.0,
-            "perf.rework_cost_per_unit": 0.0,
+            "demand.base_units_per_year": x,
+            "demand.annual_growth": x,
+            "demand.revenue_per_unit": x,
+            "labor.wage_per_hour": x,
+            "labor.manual_hours_per_unit": x,
+            "labor.automated_supervision_hours_per_unit": x,
+            "labor.automation_capture_pct": x,
+            "labor.automated_wage_per_hour": x,
+            "labor.safety_incident_cost_delta_per_year": x,
+            "costs.capex_per_unit": x,
+            "costs.install_commission_per_unit": x,
+            "costs.integration_per_unit": x,
+            "costs.maintenance_per_unit_per_year": x,
+            "costs.energy_kwh_per_unit": x,
+            "costs.consumables_per_unit": x,
+            "perf.defect_rate_change_pct": x,
+            "perf.throughput_change_pct": x,
+            "perf.scrap_cost_per_unit": x,
+            "perf.rework_cost_per_unit": x,
             "deploy.ramp": [1, 2, 4, 6, 8, 10, 12],
-            "digital_twin.capex_initial": 0.0,
-            "digital_twin.integration_initial": 0.0,
-            "digital_twin.software_per_year": 0.0,
-            "digital_twin.data_ops_per_year": 0.0,
-            "digital_twin.defect_reduction_pct": 0.0,
-            "digital_twin.labor_efficiency_pct": 0.0,
-            "digital_twin.throughput_uplift_pct": 0.0
+            "software.capex_initial": x,
+            "software.integration_initial": x,
+            "software.software_per_year": x,
+            "software.data_ops_per_year": x,
+            "software.defect_reduction_pct": x,
+            "software.labor_efficiency_pct": x,
+            "software.throughput_uplift_pct": x
           }},
           "assumption_notes": ["..."],
           "open_questions": ["..."]
@@ -1848,9 +1901,9 @@ def build_breakdown_prompt_from_row(row: Dict[str, Any], app: ApplicationType, c
           "labor_mode": {{
             "mode": "replacement | augmentation | skill_shift",
             "reasoning": "string",
-            "automation_capture_pct": 0.0,
-            "baseline_wage_per_hour": 0.0,
-            "automated_wage_per_hour": 0.0
+            "automation_capture_pct": x,
+            "baseline_wage_per_hour": x,
+            "automated_wage_per_hour": x
           }},
           "deployment_archetype": {{
             "type": "software_first | embodied_robotics | hybrid",
@@ -1881,38 +1934,38 @@ def build_input_generation_prompt_from_row(row: Dict[str, Any], breakdown: Dict[
 
         Use the row and the prior economic breakdown to generate concrete numerical inputs. Be conservative and internally consistent. Use automotive/manufacturing defaults when uncertain. Use partial automation unless the idea clearly supports full replacement.
 
-        Return ONLY valid JSON with this exact schema:
+        Return ONLY valid JSON with this exact schema. Fill in reasonable values for the 'x' placeholders. Base units per year must be greater than 0.
         {{
           "reasoning": "string",
           "scenario_overrides": {{
             "include_revenue_uplift": false,
-            "demand.base_units_per_year": 0,
-            "demand.annual_growth": 0.0,
-            "demand.revenue_per_unit": 0.0,
-            "labor.wage_per_hour": 0.0,
-            "labor.manual_hours_per_unit": 0.0,
-            "labor.automated_supervision_hours_per_unit": 0.0,
-            "labor.automation_capture_pct": 0.0,
-            "labor.automated_wage_per_hour": 0.0,
-            "labor.safety_incident_cost_delta_per_year": 0.0,
-            "costs.capex_per_unit": 0.0,
-            "costs.install_commission_per_unit": 0.0,
-            "costs.integration_per_unit": 0.0,
-            "costs.maintenance_per_unit_per_year": 0.0,
-            "costs.energy_kwh_per_unit": 0.0,
-            "costs.consumables_per_unit": 0.0,
-            "perf.defect_rate_change_pct": 0.0,
-            "perf.throughput_change_pct": 0.0,
-            "perf.scrap_cost_per_unit": 0.0,
-            "perf.rework_cost_per_unit": 0.0,
+            "demand.base_units_per_year": x,
+            "demand.annual_growth": x,
+            "demand.revenue_per_unit": x,
+            "labor.wage_per_hour": x,
+            "labor.manual_hours_per_unit": x,
+            "labor.automated_supervision_hours_per_unit": x,
+            "labor.automation_capture_pct": x,
+            "labor.automated_wage_per_hour": x,
+            "labor.safety_incident_cost_delta_per_year": x,
+            "costs.capex_per_unit": x,
+            "costs.install_commission_per_unit": x,
+            "costs.integration_per_unit": x,
+            "costs.maintenance_per_unit_per_year": x,
+            "costs.energy_kwh_per_unit": x,
+            "costs.consumables_per_unit": x,
+            "perf.defect_rate_change_pct": x,
+            "perf.throughput_change_pct": x,
+            "perf.scrap_cost_per_unit": x,
+            "perf.rework_cost_per_unit": x,
             "deploy.ramp": [1, 2, 4, 6, 8, 10, 12],
-            "digital_twin.capex_initial": 0.0,
-            "digital_twin.integration_initial": 0.0,
-            "digital_twin.software_per_year": 0.0,
-            "digital_twin.data_ops_per_year": 0.0,
-            "digital_twin.defect_reduction_pct": 0.0,
-            "digital_twin.labor_efficiency_pct": 0.0,
-            "digital_twin.throughput_uplift_pct": 0.0
+            "software.capex_initial": x,
+            "software.integration_initial": x,
+            "software.software_per_year": x,
+            "software.data_ops_per_year": x,
+            "software.defect_reduction_pct": x,
+            "software.labor_efficiency_pct": x,
+            "software.throughput_uplift_pct": x
           }},
           "bucket_explanations": {{
             "demand": "string",
@@ -2050,12 +2103,12 @@ def infer_economic_model_type_from_row(row: Dict[str, Any], breakdown: Dict[str,
     ]
 
     if deployment_type == "embodied_robotics":
-        return SolutionType.HUMANOID
+        return SolutionType.HARDWARE
     if deployment_type == "software_first":
-        return SolutionType.DIGITAL_TWIN
+        return SolutionType.SOFTWARE
     if any(term in row_text for term in embodied_terms):
-        return SolutionType.HUMANOID
-    return SolutionType.DIGITAL_TWIN
+        return SolutionType.HARDWARE
+    return SolutionType.SOFTWARE
 def build_model_with_generated_inputs(
     base_model: Model,
     country: Country,
@@ -2132,61 +2185,88 @@ def render_generated_json_summary(st, generated: Dict[str, Any]):
             st.markdown(f"- **{bucket.replace('_', ' ').title()}**: {explanation}")
 
 
-def render_matchmaking_handoff(st, base_model: Model, country: Country, regional_inputs: Dict[str, float]):
-    st.subheader("Technology Matchmaking Input")
-    st.caption(
-        "Developer bridge until the technology matchmaking tool is integrated: paste one selected row JSON. "
-        "In production this row will arrive through a POST request to the backend."
-    )
+def render_matchmaking_handoff(
+    st,
+    base_model: Model,
+    country: Country,
+    regional_inputs: Dict[str, float],
+):
+    st.header("Technology Matchmaking Input")
 
-    with st.expander("Paste single-row JSON", expanded=False):
-        row_text = st.text_area(
-            "Selected row JSON",
-            height=240,
-            placeholder='{"technologyName":"...", "technologyDescription":"...", "trlLevel":"...", "jobTitle":"...", "task":"...", "capability":"...", "idea":"...", "fitLevel":"HIGH", "fitRationale":"..."}',
+    row_id = st.query_params.get("row_id")
+
+    if not row_id:
+        st.warning("No row_id provided. Open this page from Job-tech match-making tool.")
+        st.stop()
+
+    row_state = get_row_state(row_id)
+
+    if not row_state:
+        st.warning(
+            f"No saved ROI state found for row_id={row_id}. "
+            "Run Get ROI from match-making tool first."
         )
-        run_button = st.button("Generate ROI inputs from row", type="primary")
+        st.stop()
 
-    if run_button:
-        try:
-            row_dict = json.loads(row_text)
-            output = evaluate_matchmaking_row(row_dict, base_model, country, regional_inputs)
-            st.session_state["latest_matchmaking_output"] = output
-            st.session_state["latest_editable_regional_inputs"] = dict(output.get("regional_inputs", regional_inputs))
-        except json.JSONDecodeError as exc:
-            st.error(f"Invalid single-row JSON: {exc}")
-        except Exception as exc:
-            st.error(f"LLM generation failed: {exc}")
+    row_dict = row_state.get("row", {})
+    context = row_state.get("context", {})
 
-    output = st.session_state.get("latest_matchmaking_output")
-    if not output:
-        return
+    app_name = context.get("application", "MANUFACTURING")
+    country_name = context.get("country", country.name)
+
+    try:
+        app = ApplicationType[app_name.upper()]
+    except Exception:
+        app = base_model.scenario.application
+
+    try:
+        country_enum = Country[country_name.upper()]
+    except Exception:
+        country_enum = country
+
+    # Build base model from row context so the opened Streamlit page matches match-making tool's selected row.
+    working_base_model = Model.default(app)
+    working_base_model.scenario.country = country_enum
+    working_base_model.scenario.economics.discount_rate = base_model.scenario.economics.discount_rate
+    working_base_model.scenario.economics.horizon_years = base_model.scenario.economics.horizon_years
+    working_base_model.scenario.economics.inflation_labor = base_model.scenario.economics.inflation_labor
+    working_base_model.scenario.economics.inflation_maintenance = base_model.scenario.economics.inflation_maintenance
+    working_base_model.scenario.economics.inflation_energy = base_model.scenario.economics.inflation_energy
+
+    st.subheader("Selected Technology")
+    st.write(f"Technology: {row_dict.get('technologyName')}")
+    st.write(f"Job: {row_dict.get('jobTitle')}")
+    st.write(f"Idea: {row_dict.get('idea')}")
 
     st.markdown("### Generated ROI Inputs")
-    st.caption(
-        "Review or edit the LLM-generated assumptions below. The inputs are grouped by category for usability. "
-        "Changing these values will not call the LLM again. Use the button at the bottom to recalculate ROI."
+    st.caption("Review or edit the generated assumptions below. Editing these values recalculates the model without calling the LLM again.")
+
+    generated_inputs = row_state.get("generated_inputs", {}) or {}
+    generated_overrides = (
+        row_state.get("scenario_overrides")
+        or generated_inputs.get("scenario_overrides", {})
+        or {}
     )
 
-    solution_name = output.get("economic_model_type", "DIGITAL_TWIN")
+    editable_regional_inputs = dict(
+        row_state.get("regional_inputs")
+        or get_default_regional_inputs(country_enum)
+        or regional_inputs
+    )
+
+    solution_name = row_state.get(
+        "economic_model_type",
+        working_base_model.scenario.solution.name,
+    )
+
     try:
         solution = SolutionType[solution_name]
     except Exception:
-        solution = SolutionType.DIGITAL_TWIN
-
-    generated_inputs = output.get("generated_inputs", {}) or {}
-    generated_overrides = generated_inputs.get("scenario_overrides", {}) or {}
-
-    editable_regional_inputs = dict(
-        st.session_state.get(
-            "latest_editable_regional_inputs",
-            output.get("regional_inputs", regional_inputs),
-        )
-    )
+        solution = working_base_model.scenario.solution
 
     editable_model = build_model_with_generated_inputs(
-        base_model=base_model,
-        country=country,
+        base_model=working_base_model,
+        country=country_enum,
         regional_inputs=editable_regional_inputs,
         solution=solution,
         overrides=generated_overrides,
@@ -2197,151 +2277,99 @@ def render_matchmaking_handoff(st, base_model: Model, country: Country, regional
         editable_model,
         solution,
         editable_regional_inputs,
-        key_prefix=f"generated_roi_inputs_editor_{output.get('editor_key', 'default')}",
+        key_prefix=f"generated_roi_inputs_editor_{row_id}",
         title="Editable generated assumptions",
     )
 
-    # rerun_button = st.button("Re-run economic model with edited inputs", type="primary")
-    # if rerun_button:
-    #     updated_output = update_roi_output_from_model(
-    #         output=output,
-    #         model=editable_model,
-    #         solution=solution,
-    #         regional_inputs=editable_regional_inputs,
-    #     )
-    #     st.session_state["latest_matchmaking_output"] = updated_output
-    #     st.session_state["latest_editable_regional_inputs"] = dict(editable_regional_inputs)
-    #     st.success("Economic model recalculated using edited inputs.")
-    #     output = updated_output
-
-    explanations = (output.get("generated_inputs", {}) or {}).get("bucket_explanations", {}) or {}
+    explanations = generated_inputs.get("bucket_explanations", {}) or {}
     if explanations:
         with st.expander("Why these assumptions were selected", expanded=False):
             for bucket, explanation in explanations.items():
                 st.markdown(f"- **{bucket.replace('_', ' ').title()}**: {explanation}")
 
+            assumption_notes = get_assumption_notes(row_id)
+
+            if assumption_notes:
+                st.markdown("### Additional Assumptions & Context")
+
+                for note in assumption_notes:
+                    st.markdown(f"- {note}")
+
+            st.caption(
+                "Concise rationale for each current model input, including BMW-scale deployment logic and key cost drivers."
+            )
+
+            rationale_df = build_assumption_rationale_table(
+                editable_model,
+                solution
+            )
+
+            st.dataframe(
+                rationale_df,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    # Recalculate current horizon directly from the edited model.
     current_results_for_explain = editable_model.run()
     render_metric_cards_with_explainers(st, editable_model, current_results_for_explain)
 
     st.markdown("### 3-, 5-, and 7-Year Outputs")
-    horizon_df = pd.DataFrame(output.get("horizon_outputs", []))
+
+    # Recalculate horizon table from edited values, not from stale saved output.
+    horizon_df = summarize_horizon_metrics_from_model(editable_model)
+
+    horizon_outputs = horizon_df.to_dict(orient="records")
+    scenario_overrides = collect_editable_model_inputs(editable_model, solution)
+
+    # if st.button("Update ROI results for Nik's tool", type="primary"):
+    #     update_row_state(
+    #         row_id,
+    #         {
+    #             "status": "edited",
+    #             "scenario_overrides": scenario_overrides,
+    #             "regional_inputs": dict(editable_regional_inputs),
+    #             "horizon_outputs": horizon_outputs,
+    #             "economic_model_type": solution.name,
+    #             "generated_inputs": {
+    #                 **generated_inputs,
+    #                 "scenario_overrides": scenario_overrides,
+    #             },
+    #         },
+    #     )
+    #     st.success("Updated ROI results for Match-making tool.")
+
     if not horizon_df.empty:
         st.dataframe(
-            horizon_df.style.format({"NPV": "{:,.0f}", "ROI": lambda x: "—" if pd.isna(x) else f"{x*100:,.1f}%"}),
+            horizon_df.style.format(
+                {
+                    "NPV": "{:,.0f}",
+                    "ROI": lambda x: "—" if pd.isna(x) else f"{x * 100:,.1f}%",
+                }
+            ),
             width="stretch",
             hide_index=True,
         )
+    else:
+        st.info("No horizon outputs available yet.")
 
-# def assumptions_table(solution: str) -> pd.DataFrame:
-#     rows = []
+    horizon_outputs = horizon_df.to_dict(orient="records")
+    scenario_overrides = collect_editable_model_inputs(editable_model, solution)
 
-#     if solution.lower() == "humanoid":
-#         rows += [
-#             {
-#                 "Category": "Robot hardware",
-#                 "Parameter": "CAPEX per humanoid cell",
-#                 "Model Value": "$512,000",
-#                 "Why this value is reasonable": (
-#                     "Humanoid robots capable of industrial duty are currently quoted between "
-#                     "$150k–$300k for hardware alone; additional safety hardware, compute, tooling, "
-#                     "and installation roughly double this cost for plant-ready deployment."
-#                 ),
-#                 "Industry evidence": "Morgan Stanley Research 2024; Reuters 2025"
-#             },
-#             {
-#                 "Category": "Integration",
-#                 "Parameter": "Integration per cell",
-#                 "Model Value": "$130,000",
-#                 "Why this value is reasonable": (
-#                     "FOAK integration in automotive plants typically adds 30–50% of hardware cost "
-#                     "for controls, safety, validation, and process tuning."
-#                 ),
-#                 "Industry evidence": "McKinsey Industrial Automation Benchmarks"
-#             },
-#             {
-#                 "Category": "Annual maintenance",
-#                 "Parameter": "Maintenance / year",
-#                 "Model Value": "$16,800",
-#                 "Why this value is reasonable": (
-#                     "Higher mechanical complexity and lower maturity increases service burden vs. "
-#                     "standard robot arms."
-#                 ),
-#                 "Industry evidence": "ABB & FANUC automotive service contracts (proxy)"
-#             },
-#             {
-#                 "Category": "Oversight labor",
-#                 "Parameter": "Human supervision time",
-#                 "Model Value": "0.0075 hr / unit",
-#                 "Why this value is reasonable": (
-#                     "Humanoids require more exception handling and training than fixed automation, "
-#                     "especially in early deployments."
-#                 ),
-#                 "Industry evidence": "Early humanoid pilot deployments"
-#             },
-#             {
-#                 "Category": "Deployment ramp",
-#                 "Parameter": "Cells after Yr 7",
-#                 "Model Value": "22 cells",
-#                 "Why this value is reasonable": (
-#                     "Early humanoid rollouts expand more slowly than standardized cobot cells due "
-#                     "to safety approvals and workflow tuning."
-#                 ),
-#                 "Industry evidence": "FOAK→NOAK industrial deployment pattern"
-#             },
-#         ]
-
-#     elif solution.lower() == "digital twin":
-#         rows += [
-#             {
-#                 "Category": "Platform build",
-#                 "Parameter": "Initial platform CAPEX (Yr1)",
-#                 "Model Value": "$1,200,000",
-#                 "Why this value is reasonable": (
-#                     "Enterprise digital twin programs typically require a seven-figure initial "
-#                     "platform investment to model assets and connect plant systems."
-#                 ),
-#                 "Industry evidence": "Autodesk Manufacturing Digital Twin, Oxmaint"
-#             },
-#             {
-#                 "Category": "System integration",
-#                 "Parameter": "Initial integration (Yr1)",
-#                 "Model Value": "$600,000",
-#                 "Why this value is reasonable": (
-#                     "MES/SCADA integration and data modeling represent heavy first-year effort."
-#                 ),
-#                 "Industry evidence": "Oxmaint Maintenance Twin Implementation Guides"
-#             },
-#             {
-#                 "Category": "Platform license",
-#                 "Parameter": "Annual subscription",
-#                 "Model Value": "$450,000 / yr",
-#                 "Why this value is reasonable": (
-#                     "Enterprise SaaS digital twin platforms are licensed in the mid-six-figure range."
-#                 ),
-#                 "Industry evidence": "Autodesk / Siemens Xcelerator pricing (enterprise ranges)"
-#             },
-#             {
-#                 "Category": "Data & MLOps",
-#                 "Parameter": "Annual data ops",
-#                 "Model Value": "$200,000 / yr",
-#                 "Why this value is reasonable": (
-#                     "Represents 2–3 FTE engineers for data pipelines, models, and monitoring."
-#                 ),
-#                 "Industry evidence": "Typical data engineering salary benchmarks"
-#             },
-#             {
-#                 "Category": "Quality improvement",
-#                 "Parameter": "Defect reduction",
-#                 "Model Value": "15%",
-#                 "Why this value is reasonable": (
-#                     "Digital twins reduce scrap/rework by identifying deviations before failure."
-#                 ),
-#                 "Industry evidence": "Autodesk Manufacturing Twin case studies"
-#             },
-#         ]
-
-#     return pd.DataFrame(rows)
-
+    updated_row_state = update_row_state(
+        row_id,
+        {
+            "status": "edited7",
+            "scenario_overrides": scenario_overrides,
+            "regional_inputs": dict(editable_regional_inputs),
+            "horizon_outputs": horizon_outputs,
+            "economic_model_type": solution.name,
+            "generated_inputs": {
+                **generated_inputs,
+                "scenario_overrides": scenario_overrides,
+            },
+        },
+    )
 
 
 def _fmt_money(value: Any) -> str:
@@ -2409,10 +2437,17 @@ def render_metric_cards_with_explainers(st, model: Model, results: Results):
     total_manual = float(sm.get("Total_Manual_OPEX", df["Manual_Total"].sum()))
     total_auto = float(sm.get("Total_Auto_OPEX", df["Auto_OPEX"].sum()))
     total_savings = float(sm.get("Total_Savings_vs_Manual", total_manual - total_auto))
+    total_revenue_uplift = float(sm.get("Total_Revenue_Uplift", df.get("Revenue_Uplift", pd.Series([0.0])).sum()))
+    total_project_cost = float(sm.get("Total_Project_Cost", total_auto + total_capex))
+    net_benefit_after_all_costs = float(
+        sm.get(
+            "Net_Benefit_After_All_Costs",
+            total_manual + total_revenue_uplift - total_project_cost,
+        )
+    )
     roi = sm.get("ROI", np.nan)
     npv_value = float(sm.get("NPV", 0.0))
     payback = sm.get("Payback_Year")
-    net_after_capex = total_savings - total_capex
 
     st.markdown("### Current Horizon Output")
     st.caption("Expand any metric to see the formula and the exact numbers used in the calculation.")
@@ -2456,31 +2491,31 @@ def render_metric_cards_with_explainers(st, model: Model, results: Results):
         with st.expander("Explain ROI"):
             st.markdown(
                 f"""
-**Formula**
+            **Formula**
 
-`ROI = (Total_Savings_vs_Manual - Total_CAPEX) / Total_CAPEX`
+            `ROI = Net_Benefit_After_All_Costs / Total_Project_Cost`
 
-**Variables**
+            **Variables**
 
-- `Total_Savings_vs_Manual = Total_Manual_OPEX - Total_Auto_OPEX`
-- `Total_CAPEX = Σ CAPEX_new`
+            - `Total_Project_Cost = Total_Auto_OPEX + Total_CAPEX`
+            - `Net_Benefit_After_All_Costs = Total_Manual_OPEX + Total_Revenue_Uplift - Total_Project_Cost`
 
-**Substituted calculation**
+            **Substituted calculation**
 
-`Total_Savings_vs_Manual = {_fmt_money(total_manual)} - {_fmt_money(total_auto)} = {_fmt_money(total_savings)}`
+            `Total_Project_Cost = {_fmt_money(total_auto)} + {_fmt_money(total_capex)} = {_fmt_money(total_project_cost)}`
 
-`ROI = ({_fmt_money(total_savings)} - {_fmt_money(total_capex)}) / {_fmt_money(total_capex)}`
+            `Net_Benefit_After_All_Costs = {_fmt_money(total_manual)} + {_fmt_money(total_revenue_uplift)} - {_fmt_money(total_project_cost)} = {_fmt_money(net_benefit_after_all_costs)}`
 
-`ROI = {_fmt_money(net_after_capex)} / {_fmt_money(total_capex)} = {_fmt_pct(roi)}`
-"""
+            `ROI = {_fmt_money(net_benefit_after_all_costs)} / {_fmt_money(total_project_cost)} = {_fmt_pct(roi)}`
+            """
             )
-            if total_capex > 0 and not pd.isna(roi) and roi > 5:
+            if total_project_cost > 0 and not pd.isna(roi) and roi > 5:
                 st.info(
-                    "Large ROI percentages usually occur when the upfront investment is small relative to recurring labor, quality, or operating savings. "
-                    "In this case, compare Total_CAPEX against Total_Savings_vs_Manual to sanity-check the result."
+                    "Large ROI percentages usually occur when avoided manual cost is very large relative to the total automation project cost. "
+                    "Compare Total_Project_Cost against Total_Manual_OPEX to sanity-check the result."
                 )
-            elif total_capex <= 0:
-                st.warning("ROI is undefined or not meaningful when Total_CAPEX is zero.")
+            elif total_project_cost <= 0:
+                st.warning("ROI is undefined or not meaningful when Total_Project_Cost is zero.")
 
     with col3:
         st.metric("Payback", payback if payback else "No payback")
@@ -2524,7 +2559,7 @@ def render_metric_cards_with_explainers(st, model: Model, results: Results):
                 `Total_Savings_vs_Manual = {_fmt_money(total_manual)} - {_fmt_money(total_auto)} = {_fmt_money(total_savings)}`
 
                 This number measures operating-cost reduction before subtracting total CAPEX. ROI then subtracts CAPEX and divides by CAPEX.
-"""
+                """
             )
             yearly = df[["Year", "Manual_Total", "Auto_OPEX", "CAPEX_new", "Revenue_Uplift", "Net_Savings"]].copy()
             yearly["Manual - Auto OPEX"] = yearly["Manual_Total"] - yearly["Auto_OPEX"]
@@ -2543,24 +2578,157 @@ def render_metric_cards_with_explainers(st, model: Model, results: Results):
                 hide_index=True,
             )
 
+def compact_horizon_outputs_from_model(model: Model) -> list:
+    horizon_df = summarize_horizon_metrics_from_model(model)
+
+    outputs = []
+    for _, row in horizon_df.iterrows():
+        outputs.append(
+            {
+                "Horizon_Years": int(row["Horizon_Years"]),
+                "NPV": float(row["NPV"]),
+                "ROI": None if pd.isna(row["ROI"]) else float(row["ROI"]),
+                "Payback_Year": None if pd.isna(row["Payback_Year"]) else int(row["Payback_Year"]),
+            }
+        )
+
+    return outputs
+
+
+def get_roi_for_selected_row(
+    row_dict: dict,
+    row_id: str,
+    application: str = "MANUFACTURING",
+    country: str = "GERMANY",
+    streamlit_base_url: str = "http://localhost:8501",
+    force_regenerate: bool = False,
+) -> dict:
+    """
+    Entry point for Matchmaking tool.
+
+    Behavior:
+    - If row_id already has saved assumptions, reuse them.
+    - If not, call the LLM once to generate assumptions.
+    - Calculate 3-, 5-, and 7-year outputs.
+    - Save all row-specific state needed by the Streamlit model page.
+    - Return compact JSON for Matchmaking table.
+    """
+
+    existing = get_row_state(row_id)
+    streamlit_url = f"{streamlit_base_url}/?row_id={row_id}"
+
+    app = ApplicationType[application.upper()]
+    country_enum = Country[country.upper()]
+
+    base_model = Model.default(app)
+    base_model.scenario.country = country_enum
+
+    regional_inputs = (
+        existing.get("regional_inputs")
+        if existing and existing.get("regional_inputs")
+        else get_default_regional_inputs(country_enum)
+    )
+
+    generated_inputs = {}
+    scenario_overrides = {}
+    solution = base_model.scenario.solution
+
+    should_reuse_existing = (
+        existing is not None
+        and existing.get("scenario_overrides")
+        and not force_regenerate
+    )
+
+    if should_reuse_existing:
+        scenario_overrides = existing.get("scenario_overrides", {}) or {}
+        generated_inputs = existing.get("generated_inputs", {}) or {
+            "scenario_overrides": scenario_overrides
+        }
+
+        solution_name = existing.get("economic_model_type", base_model.scenario.solution.name)
+        try:
+            solution = SolutionType[solution_name]
+        except Exception:
+            solution = base_model.scenario.solution
+
+    else:
+        output = evaluate_matchmaking_row(
+            row_dict=row_dict,
+            base_model=base_model,
+            country=country_enum,
+            regional_inputs=regional_inputs,
+        )
+
+        generated_inputs = output.get("generated_inputs", {}) or {}
+        scenario_overrides = generated_inputs.get("scenario_overrides", {}) or {}
+
+        solution_name = output.get("economic_model_type", base_model.scenario.solution.name)
+        try:
+            solution = SolutionType[solution_name]
+        except Exception:
+            solution = base_model.scenario.solution
+
+    generated_model = build_model_with_generated_inputs(
+        base_model=base_model,
+        country=country_enum,
+        regional_inputs=regional_inputs,
+        solution=solution,
+        overrides=scenario_overrides,
+    )
+
+    horizon_outputs = compact_horizon_outputs_from_model(generated_model)
+
+    row_state_payload = {
+        "row": row_dict,
+        "context": {
+            "application": application,
+            "country": country,
+        },
+        "generated_inputs": generated_inputs,
+        "scenario_overrides": scenario_overrides,
+        "regional_inputs": dict(regional_inputs),
+        "economic_model_type": solution.name,
+        "horizon_outputs": horizon_outputs,
+        "streamlit_url": streamlit_url,
+        "status": "generated" if not should_reuse_existing else existing.get("status", "generated"),
+    }
+
+    if existing:
+        update_row_state(row_id, row_state_payload)
+    else:
+        save_row_state(
+            row_id=row_id,
+            row=row_dict,
+            context=row_state_payload["context"],
+            scenario_overrides=scenario_overrides,
+            horizon_outputs=horizon_outputs,
+            status=row_state_payload["status"],
+            streamlit_url=streamlit_url,
+        )
+        update_row_state(
+            row_id,
+            {
+                "generated_inputs": generated_inputs,
+                "regional_inputs": dict(regional_inputs),
+                "economic_model_type": solution.name,
+            },
+        )
+
+    return {
+        "status": "success",
+        "technologyName": row_dict.get("technologyName"),
+        "jobTitle": row_dict.get("jobTitle"),
+        "row_id": row_id,
+        "streamlit_url": streamlit_url,
+        "horizon_outputs": horizon_outputs,
+    }
+
+
 def run_streamlit():
-    import streamlit as st
 
     st.set_page_config(page_title="BMW Robotics ROI", layout="wide")
     st.title("BMW Robotics ROI & Cost Degression Model")
     st.caption("ROI model for a selected technology-matchmaking solution.")
-
-    # @st.dialog("Assumptions & Sources")
-    # def show_assumptions_dialog():
-    #     st.write(
-    #         "Reference assumptions used by the internal cost archetypes. "
-    #         "These are starting points and should be replaced with BMW internal benchmarks as available."
-    #     )
-    #     tab1, tab2 = st.tabs(["Embodied robotics archetype", "Software/digital twin archetype"])
-    #     with tab1:
-    #         st.dataframe(assumptions_table("humanoid"), width="stretch", hide_index=True)
-    #     with tab2:
-    #         st.dataframe(assumptions_table("digital twin"), width="stretch", hide_index=True)
 
     st.sidebar.header("Scenario Context")
     app_choice = st.sidebar.selectbox("Application", [e.name.title() for e in ApplicationType])
@@ -2575,9 +2743,6 @@ def run_streamlit():
         help="Only enable when extra throughput can realistically be monetized.",
     )
 
-    # if st.sidebar.button("Show assumptions & sources"):
-        # show_assumptions_dialog()
-
     app = ApplicationType[app_choice.upper()]
     country = Country[country_choice.upper()]
 
@@ -2588,12 +2753,6 @@ def run_streamlit():
         st.session_state[state_key] = Model.default(app)
     if region_key not in st.session_state:
         st.session_state[region_key] = get_default_regional_inputs(country)
-
-    # if st.sidebar.button("Reset context"):
-    #     st.session_state[state_key] = Model.default(app)
-    #     st.session_state[region_key] = get_default_regional_inputs(country)
-    #     st.session_state.pop("latest_matchmaking_output", None)
-    #     st.session_state.pop("latest_editable_regional_inputs", None)
 
     base_model = deepcopy(st.session_state[state_key])
     base_model.scenario.application = app
@@ -2610,7 +2769,6 @@ def run_streamlit():
     st.session_state[region_key] = dict(regional_inputs)
 
     render_matchmaking_handoff(st, base_model, country, regional_inputs)
-
     output = st.session_state.get("latest_matchmaking_output")
     if output:
         yearly_df = pd.DataFrame(output.get("yearly", []))
@@ -2670,58 +2828,8 @@ def run_streamlit():
 # Entry point
 # -----------------------------
 
-
 if __name__ == "__main__":
     import sys
 
-    # If running via `streamlit run`, Streamlit will already be imported.
-    if "streamlit" in sys.modules:
-        run_streamlit()
-    else:
-        parser = argparse.ArgumentParser(
-            description="BMW Robotics ROI & Cost Degression Model"
-        )
-        parser.add_argument(
-            "--app",
-            choices=["logistics", "product", "manufacturing", "office", "sales"],
-            default="manufacturing",
-        )
-        parser.add_argument(
-            "--country",
-            choices=["USA", "germany", "china", "mexico"],
-            default="USA",
-            help="Country used to set labor and operating cost assumptions.",
-        )
-        parser.add_argument("--years", type=int, default=None)
-        parser.add_argument("--plot", action="store_true")
-        parser.add_argument(
-            "--out", type=str, default=None, help="CSV path for yearly table"
-        )
-        parser.add_argument(
-            "--revenue-uplift",
-            action="store_true",
-            help="Monetize throughput increase",
-        )
-        parser.add_argument(
-            "--override",
-            nargs=2,
-            action="append",
-            default=[],
-            metavar=("param.path", "value"),
-            help="Override any parameter, e.g., labor.wage_per_hour 45",
-        )
-        parser.add_argument(
-            "--streamlit", action="store_true", help="Launch Streamlit UI"
-        )
-        parser.add_argument(
-            "--row-json",
-            type=str,
-            default=None,
-            help="Path to one selected technology-matchmaking row JSON file. Runs the LLM-to-ROI backend pipeline from the terminal.",
-        )
-        args = parser.parse_args()
-
-        if args.streamlit:
-            run_streamlit()
-        else:
-            run_cli(args)
+    run_streamlit()
+ 
