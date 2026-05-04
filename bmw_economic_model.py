@@ -76,6 +76,9 @@ class EconomicAssumptions:
     discount_rate: float = 0.10  # WACC / hurdle rate (10%)
     horizon_years: int = 7  # planning horizon
     inflation_labor: float = 0.03  # annual labor inflation
+    inflation_maintenance: float = 0.02  # annual maintenance inflation
+    inflation_energy: float = 0.03  # annual energy inflation
+    carbon_price_per_ton: float = 0.0  # optional monetization of CO2
 
 @dataclass(frozen=True)
 class CountryAssumptions:
